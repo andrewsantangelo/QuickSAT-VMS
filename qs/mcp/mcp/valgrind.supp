@@ -1,0 +1,13 @@
+{
+   <glibc.timer_create>
+   Memcheck:Leak
+   fun:calloc
+   fun:_dl_allocate_tls
+   fun:pthread_create@@GLIBC_2.2.5
+   fun:__start_helper_thread
+   fun:pthread_once
+   fun:timer_create@@GLIBC_2.3.3
+   fun:mcpRules_initialize
+   fun:mcp_start
+   fun:main
+}

@@ -1,0 +1,132 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import subprocess
+import signal
+import glob
+
+# The following XL commands need to be supported:
+#   xl create -qp "config_file"
+#   xl unpause "dom_name"
+#   xl pause "dom_name"
+#   xl reboot "dom_name"
+#   xl sched-credit -s -t "dom_name"
+#   xl sched-credit -d "dom_name" -w weight -c cap
+#   xl destroy "dom_name"
+#   xl list
+
+XEN_CONFIG_DIR = '/etc/xen'
+
+def read_config_file(xencfg):
+    # Read the specified Xen domain config file
+    appcfg = {}
+    f = open(xencfg, 'r')
+    for line in f.read().splitlines():
+        (key, value) = line.replace('"', '').split(' = ')
+        appcfg[key] = value
+    f.close()
+    return appcfg
+
+def read_app_config(appname):
+    for cfg in glob.glob('{}/mcp*.cfg'.format(XEN_CONFIG_DIR)):
+        appcfg = read_config_file(cfg)
+        if appcfg['name'] == appname:
+            return appcfg
+
+def write_app_pid(appname):
+    f = open('{}/pids/{}'.format(XEN_CONFIG_DIR, appname), 'w+')
+    f.write(str(os.getpid()))
+    f.close()
+
+def read_app_pid(appname):
+    f = open('{}/pids/{}'.format(XEN_CONFIG_DIR, appname))
+    pid = f.read()
+    f.close()
+    return int(pid)
+
+def start_app(appcfg):
+    # launch the 'kernel' as the application, and supply any 'extra'
+    # arguments if they are specified
+    if 'extra' in appcfg:
+        appargs = appcfg['extra'].split(' ')
+        os.execl(appcfg['kernel'], appcfg['kernel'], *appargs)
+    else:
+        os.execl(appcfg['kernel'], appcfg['kernel'])
+
+def stop_app(appname):
+    pid = read_app_pid(appname)
+    os.kill(pid, signal.SIGKILL)
+    # remove the pid file
+    os.remove('{}/pids/{}'.format(XEN_CONFIG_DIR, appname))
+
+def main(argv):
+    # make sure that the pids directory exists
+    subprocess.call(['mkdir', '-p', '{}/pids'.format(XEN_CONFIG_DIR)])
+
+    if argv[1] == 'create':
+        # Assume the last param is the config file name
+        appcfg = read_config_file(argv[-1])
+        write_app_pid(appcfg['name'])
+        if argv[2][0] == '-' and 'p' in argv[2]:
+            os.kill(os.getpid(), signal.SIGSTOP)
+        start_app(appcfg)
+
+    elif argv[1] == 'unpause':
+        pid = read_app_pid(argv[2])
+        os.kill(pid, signal.SIGCONT)
+
+    elif argv[1] == 'pause':
+        pid = read_app_pid(argv[2])
+        os.kill(pid, signal.SIGSTOP)
+
+    elif argv[1] == 'reboot':
+        stop_app(argv[2])
+
+        # now start the process again
+        appcfg = read_app_config(argv[2])
+        write_app_pid(appcfg['name'])
+        start_app(appcfg)
+
+    elif argv[1] == 'destroy':
+        stop_app(argv[2])
+
+    elif argv[1] == 'list':
+        # gather all running PIDs and get the process info for each of them
+        apps = []
+        for p in os.listdir('{}/pids'.format(XEN_CONFIG_DIR)):
+            f = open('{}/pids/{}'.format(XEN_CONFIG_DIR, p))
+            apps.append(f.read())
+            f.close()
+
+        # If there are no apps running, specify a pid of 16777215 (0xFFFFFF)
+        # which should result in no process information (since this pid is
+        # highly unlikely to be used)
+        if not len(apps):
+            apps = [ '16777215' ]
+
+        # Find out where the 'ps' program is
+        if os.path.exists('/bin/ps'):
+            ps_path = '/bin/ps'
+        elif os.path.exists('/usr/bin/ps'):
+            ps_path = '/usr/bin/ps'
+        else:
+            # this will fail... but oh well
+            ps_path = 'ps'
+
+        # obtain the process info
+        # (this works well for multiple processes in linux, but not cygwin)
+        os.execl(ps_path, 'ps', '-p', ','.join(apps), '-lf')
+
+    elif argv[1] != 'sched-credit':
+        # do nothing for the 'sched-credit' command
+        #print('unsupported argument "{}"'.format(argv[1]), file=sys.stderr)
+        print('unsupported argument "{}"'.format(argv[1]))
+        return -1
+
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))
+
+# vim: filetype=python

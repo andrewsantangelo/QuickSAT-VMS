@@ -1,0 +1,72 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          mcp
+# Required-Start:    xen
+# Required-Stop:     xen
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Provides the MCP service
+# Description:       Provides the MCP service
+### END INIT INFO
+
+NAME=mcp
+DAEMON=/opt/mcp/bin/mcp
+PIDDIR=/var/run
+PIDFILE=$PIDDIR/mcp.pid
+DAEMONUSER=root
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+. /lib/lsb/init-functions
+
+mcp_start () {
+	log_daemon_msg "Starting system $NAME Daemon"
+	if [ ! -d $PIDDIR ]; then
+		mkdir -p $PIDDIR
+		chown $DAEMONUSER:$DAEMONUSER $PIDDIR
+	fi
+	sudo start-stop-daemon -x $DAEMON -p $PIDFILE --start --chuid $DAEMONUSER:$DAEMONUSER 
+	status=$?
+	log_end_msg ${status}
+}
+
+mcp_reload () {
+	log_daemon_msg "Reloading system $NAME Daemon"
+	# Use the "stop" mode with --oknodo to cause MCP to reload it's configuration
+	sudo start-stop-daemon -p $PIDFILE --stop --oknodo --signal HUP || echo -n "...which is not running"
+	status=$?
+	log_end_msg ${status}
+}
+
+mcp_stop () {
+	log_daemon_msg "Stopping system $NAME Daemon"
+	sudo start-stop-daemon -p $PIDFILE --stop --retry 5 || echo -n "...which is not running"
+	status=$?
+	log_end_msg ${status}
+}
+
+case "$1" in
+	start|stop|reload)
+		mcp_${1}
+		;;
+	restart)
+		if [ -s $PIDFILE ] && kill -0 $(cat $PIDFILE) >/dev/null 2>&1; then
+			mcp_stop
+			mcp_start
+		fi
+		;;
+	force-stop)
+		mcp_stop
+		sudo pkill mcp || true
+		sleep 2
+		sudo pkill -9 mcp || true
+		;;
+	status)
+		status_of_proc -p $PIDFILE "$DAEMON" "system-wide $NAME" && exit 0 || exit $?
+		;;
+	*)
+		echo "Usage: /etc/init.d/mcp {start|stop|force-stop|restart|reload|status}"
+		exit 1
+		;;
+esac
+
+exit $status

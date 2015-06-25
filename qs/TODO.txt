@@ -1,0 +1,24 @@
+0. restart thread if it dies
+--------
+
+
+A small list of what we need to do with this system before the final released to the Air Force, if the FRNCS configuration is modified so that the BBB talks directly to the GS1720 modem (and uses PPP + VPN to talk to the QuickSat server):
+
+1. Create a non-privileged user on the BBB
+2. Prevent root from logging in to the BBB
+3. Install SSH keys, and require them for SSH (also for BBB to CT?)
+4. Firewall all incoming ports unless VPN is running?
+5. Secure VPN connection?
+6. Only allow SSH and MySQL connections
+7. Require SSL key for MySQL connection
+8. SSH knock pattern (randomly generate)
+9. (potentially optional) Disable apache, and potentially other unused services?
+
+This list may seem like overkill, but as long as all incoming ports to the BBB are locked down except when the VPN is active, the only way into the board (except through software bugs) is by DNS spoofing the QuickSat server.  The VPN certificate used would need to be secure enough to make this difficult, and then the additional SSL and MySQL keys would be an additional layer of security.
+
+======================================
+application_id being a string, not just an integer
+more than one app to a VM
+Health monitoring of Apps/VMs
+Health monitoring reporting and recovery actions
+
