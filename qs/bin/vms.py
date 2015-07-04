@@ -154,6 +154,10 @@ class vms(object):
                 self.retrieve_flight_data()
             elif 'CREATE_REC_SESSION' in self.commands:
                 self.create_rec_session()
+            elif 'CALL' in self.commands:
+            		self.call()
+            elif 'HANGUP' in self.commands:
+            		self.hangup()
             else:
                 self.handle_unknown_command()
 
@@ -407,3 +411,20 @@ class vms(object):
                     msg = 'Unknown command {}:{}'.format(k, c)
                     self.db.complete_commands(c, False, msg)
 
+    
+    def call(self):
+        cmds = self.commands.pop('CALL')
+        try:
+        		self.db.call('777')
+            self.db.complete_commands(cmds, True)
+        except:
+            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+
+    def hangup(self):
+        cmds = self.commands.pop('HANGUP')
+        try:
+            self.db.hangup()
+            self.db.complete_commands(cmds, True)
+        except:
+            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+   

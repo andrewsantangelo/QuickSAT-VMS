@@ -9,7 +9,8 @@
 import serial
 
 class gsp1720(object):
-    def __init__(self, port='/dev/ttyO4', baudrate=9600):
+    # set default dtr_pin back to 48 when dtr_pin init is properly handled
+    def __init__(self, port='/dev/ttyO4', baudrate=9600, dtr_pin=None):
         # Use a short timeout for read and write operations since the baud
         # rates used with the GSP-1720 radio are so slow.
         self.args = {
@@ -24,11 +25,34 @@ class gsp1720(object):
             'dsrdtr': False,
             'writeTimeout': 1,
         }
+        self.dtr_pin = dtr_pin
         self.serial = serial.Serial(**self.args)
+        
+        # Phone option to ignore DTR changes after a call starts. Adds stability.
+        self._command('AT&D0')
+        
+        # Need to detect when the pin has already been exported and not try
+        # again, otherwise this causes trouble
+        if self.dtr_pin:
+            # Enable the GPIO1_16 signal to be used to enable DTR
+            with open('/sys/class/gpio/export', 'w') as f:
+                f.write(str(self.dtr_pin))
+
+            with open('/sys/class/gpio/gpio{}/direction'.format(self.dtr_pin), 'w') as f:
+                f.write('out')
+
+            with open('/sys/class/gpio/gpio{}/value'.format(self.dtr_pin), 'w') as f:
+                f.write('1')
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        self.serial.close()
 
     def _command(self, cmd):
         self.serial.flush()
-        self.serial.write(cmd + '\r\n')
+        self.serial.write(b'{}\r'.format(cmd))
 
         # Because there is a short timeout this will only read the available
         # bytes rather than trying to read all 1000 characters.
@@ -51,7 +75,7 @@ class gsp1720(object):
                 # If there are any KEY:VALUE pairs, add them to the result
                 # dictionary
                 (key, value) = tuple(line.split(':', 1))
-                result[key] = value
+                result[key] = value.strip('\r\n ')
 
         # Return 3 things as a tuple:
         #   1. Status (OK/ERROR translated into True/False)
@@ -64,6 +88,44 @@ class gsp1720(object):
 
     def get_location(self):
         return self._command('AT$QCPLS=1')
+
+    def is_service_available(self):
+        (status, data, _) = self.get_status()
+	avail = status and (data['RSSI'] >= 1) and (data['SERVICE AVAILABLE'] == 'YES')
+        if 'SERVICE AVAILABLE' in data and data['SERVICE AVAILABLE'] == 'DEEP_SLEEP':
+            print('DEEP_SLEEP!')
+        rssi = -1
+        if 'RSSI' in data:
+            rssi = data['RSSI']
+        return (avail, rssi)
+        
+    def call(self, number):
+        self.serial.flush()
+        # set the timeout longer to allow time for the connection to be made
+        old_timeout = self.serial.timeout
+        self.serial.timeout = 60
+        self.serial.write(b'ATD#{}\r'.format(number))
+
+        # there shouldn't be as many bytes to read in response to this command as there
+        # are to normal commands
+        raw = self.serial.read(18)
+
+        # return the read timeout to normal
+        self.serial.timeout = old_timeout
+
+        status = False
+        for line in raw.split('\r\n'):
+            # we only care if the response is 'CONNECT'
+            if line.strip('\r\n ') == 'CONNECT':
+                status = True
+
+        # flush any unread characters
+        self.serial.flush()
+
+        return (status, raw)
+
+    def hangup(self):
+        return self._command('ATH')
 
 if __name__ == '__main__':
     radio = gsp1720()

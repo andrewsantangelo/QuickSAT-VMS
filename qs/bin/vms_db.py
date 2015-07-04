@@ -4,6 +4,7 @@ import syslog
 import itertools
 import sys
 import radio_status
+import subprocess
 
 # To connect to the QS/VMS database, install with
 #   $ pip install MySQL-python
@@ -14,6 +15,12 @@ import radio_status
 # install pip as described here:
 #   https://pypi.python.org/pypi/setuptools
 import mysql.connector
+
+# utility function to test connection to server
+def ping(address):
+    args = ['ping', '-c1', address]
+    f = open('/dev/null', 'w')
+    return (0 == subprocess.call(args, stdout=f))
 
 class vms_db(object):
     def __init__(self, address, port, cert, username, password, dbname, **kwargs):
@@ -30,7 +37,8 @@ class vms_db(object):
         if not self.config['ssl_ca']:
             del self.config['ssl_ca']         
         self.open()
-        self.radio = radio_status.gsp1720()   
+        self.radio = radio_status.gsp1720()
+        self.ppp = None
 
     def __del__(self):
         self.close()
@@ -301,7 +309,7 @@ class vms_db(object):
 #    
         self.cursor.execute('''
             INSERT INTO `stepSATdb_Flight`.`Recording_Sessions` (`datetime_created`) VALUES ( NOW() )
-            			''')
+                        ''')
         self.db.commit()
 
 #
@@ -324,7 +332,7 @@ class vms_db(object):
         self.cursor.execute(stmt)
         row_recording_session_state = self.cursor.fetchone()   
 
-        row_recording_session_state['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']       			
+        row_recording_session_state['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']                  
 
         self.cursor.execute('''
            INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`, 
@@ -335,7 +343,7 @@ class vms_db(object):
                 %(current_flight_phase)s, %(data_download_poll_rate)s, %(command_poll_rate)s, %(command_syslog_poll_rate)s, 
                 %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s, 
                 %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s )
-            			''', row_recording_session_state)   
+                        ''', row_recording_session_state)   
         self.db.commit()
 
         return None
@@ -350,22 +358,22 @@ class vms_db(object):
         status = {
             'N': 'error',
             'W': 'error',
-         'TIME': 'error',
-          'ERR': 'error',
-    'CALL TYPE': ' ',
-    'CALL DURATION': '',
-       'NUMBER': '',
-    'PROVIDER' : '',
-    'SERVICE AVAILABLE': '',
-    'SERVICE MODE': '',
-    'CALL STATE' : '',
-    'REGISTRATION' : '',
-       'RSSI' : '0',
-       'ROAMING' : 'NO',
-       'GATEWAY' : '0',
-       'recording_session_id' : '0',
-       'esn': '11111111'
-          }         
+            'TIME': 'error',
+            'ERR': 'error',
+            'CALL TYPE': ' ',
+            'CALL DURATION': '',
+            'NUMBER': '',
+            'PROVIDER' : '',
+            'SERVICE AVAILABLE': '',
+            'SERVICE MODE': '',
+            'CALL STATE' : '',
+            'REGISTRATION' : '',
+            'RSSI' : '0',
+            'ROAMING' : 'NO',
+            'GATEWAY' : '0',
+            'recording_session_id' : '0',
+            'esn': '11111111'
+        }         
         status.update(self.radio.get_status()[1])         
         status.update(self.radio.get_location()[1])         
         
@@ -398,11 +406,85 @@ class vms_db(object):
                 %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
                 %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
                 %(N)s, %(W)s, %(ERR)s )
-            			''', status)   
-        self.db.commit()            			        
-        
-        
-        return None    
-        
+                        ''', status)   
+        self.db.commit()                                
+        self.connect_to_ground()
 
+    def connect_to_ground(self):
+        # look up server address and connect method (eth or linkstar), and current connection state
         
+        stmt = '''
+            SELECT `Recording_Session_State`.`test_connection`,
+                   `Recording_Session_State`.`connection_type`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                )
+            LIMIT 1
+        '''
+        self.cursor.execute(stmt)
+        results = self.cursor.fetchone()
+        connected = results['test_connection']
+        method = results['connection_type']
+        
+        if connected == 0:
+            stmt = '''
+                SELECT `Ground_Server`.`test_server`
+                    FROM `stepSATdb_Flight`.`Ground_Server`
+                    WHERE `Ground_Server`.`ground_server_index` = 1
+                LIMIT 1
+            '''
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchone()
+            server_address = results['test_server']
+
+            if method == 'Ethernet':
+                connected = True
+            elif method == 'LinkStar':
+                if status['CALL STATE'] == 'TIA_PPP_MDT': 
+                    connected = True
+                elif status['CALL STATE'] == 'IDLE':
+                    connected = self.call('777')
+                    # If we were able to connect, wait about 10 seconds so we can
+                    # ping immediately
+                    if connected:
+                        time.sleep(10)
+            else:
+                # Error?
+                pass
+
+            if connected:
+                server_state = ping(server_address)
+
+            #update db with newly discovered server state
+            stmt = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET test_connection=1 
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    )
+            '''
+                    
+            self.cursor.execute(stmt)
+            self.db.commit()
+                
+             
+    def call(self, number):
+        (status, msg) = self.radio.call(number)
+        if status:
+            args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'persist', 'maxfail', '0', 'crtscts', 'local' ]
+            self.ppp = subprocess.Popen(args)
+        else:
+            self._log_msg('Failed to call #{}: {}'.format(number, msg))
+
+        return status
+      
+    def hangup(self):
+        # pkill pppd would could also work
+        if self.ppp:
+                self.ppp.kill()
+                    
+        self.radio.hangup()
+    
