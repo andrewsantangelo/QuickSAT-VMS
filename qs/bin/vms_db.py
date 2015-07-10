@@ -5,6 +5,7 @@ import itertools
 import sys
 import radio_status
 import subprocess
+import threading
 
 # To connect to the QS/VMS database, install with
 #   $ pip install MySQL-python
@@ -24,6 +25,7 @@ def ping(address):
 
 class vms_db(object):
     def __init__(self, address, port, cert, username, password, dbname, **kwargs):
+        self.lock = threading.RLock()
         self.db = None
         self.cursor = None
         self.config = {
@@ -39,6 +41,7 @@ class vms_db(object):
         self.open()
         self.radio = radio_status.gsp1720()
         self.ppp = None
+        
 
     def __del__(self):
         self.close()
@@ -47,15 +50,17 @@ class vms_db(object):
         """
         simple function to allow executing unusual statements
         """
-        if isinstance(args, list):
-            self.cursor.executemany(stmt, args)
-        else:
-            self.cursor.execute(stmt, args)
-        if self.cursor.with_rows:
-            return self.cursor.fetchall()
-        else:
-            self.db.commit()
-            return None
+    
+        with self.lock:
+            if isinstance(args, list):
+                self.cursor.executemany(stmt, args)
+            else:
+                self.cursor.execute(stmt, args)
+            if self.cursor.with_rows:
+                return self.cursor.fetchall()
+            else:
+                self.db.commit()
+                return None
 
     def _log_msg(self, msg):
         stmt = '''
@@ -72,26 +77,35 @@ class vms_db(object):
         '''
         # Handle exceptions for this cleanly, errors should get logged to the
         # syslog
-        try:
-            self.cursor.execute(stmt, (msg,))
-            self.db.commit()
-        except:
-            syslog.syslog(syslog.LOG_ERR, 'Error logging message "{}": {}'.format(msg, sys.exc_info()[1]))
+        
+        with self.lock:
+            try:
+                self.cursor.execute(stmt, (msg,))
+                self.db.commit()
+            except:
+                syslog.syslog(syslog.LOG_ERR, 'Error logging message "{}": {}'.format(msg, sys.exc_info()[1]))
+        
 
     def open(self):
-        if not self.db:
-            self.db = mysql.connector.connect(**self.config)
-
-        if self.db and not self.cursor:
-            self.cursor = self.db.cursor(dictionary=True)
+        with self.lock:
+        
+            if not self.db:
+                self.db = mysql.connector.connect(**self.config)
+              
+            if self.db and not self.cursor:
+                self.cursor = self.db.cursor(dictionary=True)
 
 
     def close(self):
-        if self.cursor:
-            self.cursor.close()
+        with self.lock:
+            
+            if self.cursor:
+                self.cursor.close()
 
-        if self.db:
-            self.db.close()
+            if self.db:
+                self.db.close()
+            
+      
 
     def getapps(self):
         # Extract the application ID and name from the 'System_Applications'
@@ -109,9 +123,12 @@ class vms_db(object):
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
         '''
-        self.cursor.execute(stmt)
-        apps = self.cursor.fetchall()
-        syslog.syslog(syslog.LOG_DEBUG, 'Retrieved applications "{}"'.format(str(apps)))
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            apps = self.cursor.fetchall()
+            syslog.syslog(syslog.LOG_DEBUG, 'Retrieved applications "{}"'.format(str(apps)))
+        
         return apps
 
     def all_pending_commands(self):
@@ -121,8 +138,8 @@ class vms_db(object):
                     `Command_Log`.`Recording_Sessions_recording_session_id` AS id,
                     `Command_Log`.`command_data` AS data,
                     `Command_Log`.`Recording_Sessions_recording_session_id` AS session,
-                    `Command_Log`.`priority` AS priority,
-                    `Command_Log`.`source` AS source
+                    `Command_Log`.`source` AS source,
+                    `Command_Log`.`priority` AS priority
                 FROM `stepSATdb_Flight`.`Command_Log`
                 WHERE `Command_Log`.`command_state`='Pending'
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
@@ -130,25 +147,28 @@ class vms_db(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
                     )
         '''
-        self.cursor.execute(stmt)
-        commands = {}
-        for row in self.cursor:
-            cmd = row.pop('command')
-            if cmd not in commands:
-                commands[cmd] = []
-            commands[cmd].append(row)
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            commands = {}
+            for row in self.cursor:
+                cmd = row.pop('command')
+                if cmd not in commands:
+                    commands[cmd] = []
+                commands[cmd].append(row)
+
         if commands:
             syslog.syslog(syslog.LOG_DEBUG, 'Retrieved pending commands "{}"'.format(str(commands)))
         return commands
 
-    def filter_pending_commands(self, cmd):
+    def filter_pending_commands(self, cmd):                   
         stmt = '''
             SELECT `Command_Log`.`time_of_command` AS time,
                     `Command_Log`.`Recording_Sessions_recording_session_id` AS id,
                     `Command_Log`.`command_data` AS data,
                     `Command_Log`.`Recording_Sessions_recording_session_id` AS session,
-                    `Command_Log`.`priority` AS priority,
-                    `Command_Log`.`source` AS source                    
+                    `Command_Log`.`source` AS source ,
+                    `Command_Log`.`priority` AS priority
                 FROM `stepSATdb_Flight`.`Command_Log`
                 WHERE `Command_Log`.`command`=%s
                     AND `Command_Log`.`command_state`='Pending'
@@ -157,8 +177,11 @@ class vms_db(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
                     )
         '''
-        self.cursor.execute(stmt, (cmd,))
-        commands = self.cursor.fetchall()
+        
+        with self.lock:
+            self.cursor.execute(stmt, (cmd,))
+            commands = self.cursor.fetchall()
+  
         syslog.syslog(syslog.LOG_DEBUG, 'Retrieved pending "{}" commands "{}"'.format(cmd, str(commands)))
         return commands
 
@@ -184,7 +207,10 @@ class vms_db(object):
                 log = 'Command Success'
         else:
             state = 'Fail'
-            log = 'Command Failed:\n' + message
+            if message:
+                log = 'Command Failed:\n' + message
+            else:
+                log = 'Command Failed'
 
         # transform the command list
         cmd_keys = ['time', 'id', 'data', 'session']
@@ -205,8 +231,11 @@ class vms_db(object):
                 WHERE `Command_Log`.`time_of_command`=%s
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=%s
         '''
-        self.cursor.executemany(stmt, update_cmds)
-        self.db.commit()
+        
+        
+        with self.lock:
+            self.cursor.executemany(stmt, update_cmds)
+            self.db.commit()
 
         self._log_msg(log)
 
@@ -226,9 +255,12 @@ class vms_db(object):
         params = app.copy()
         params['state'] = state
         params['status'] = status
-        self.cursor.execute(stmt, params)
-        self.db.commit()
-
+        
+        
+        with self.lock:
+            self.cursor.execute(stmt, params)
+            self.db.commit()
+        
         # Log more detail
         if msg:
             self._log_msg(msg)
@@ -260,15 +292,19 @@ class vms_db(object):
                 SELECT * FROM `stepSATdb_Flight`.`{table}`
                     ORDER BY `{table}`.`{column}` DESC
             '''.format(table=table, column=column)
-        self.cursor.execute(stmt, dict(session=session, timestamp=timestamp))
-        if self.cursor.with_rows:
-            # Get the maximum timestamp from the first row (because of the
-            # ORDER BY ... DESC clause) and return it with the results.
-            ret = self.cursor.fetchall()
-            return (self.cursor.fetchall(), ret[0][column])
-        else:
-            # Return an empty list and 'None' for the timestamp
-            return ([], None)
+            
+        
+        with self.lock:
+            self.cursor.execute(stmt, dict(session=session, timestamp=timestamp))
+            if self.cursor.with_rows:
+                # Get the maximum timestamp from the first row (because of the
+                # ORDER BY ... DESC clause) and return it with the results.
+                ret = self.cursor.fetchall()
+                return (self.cursor.fetchall(), ret[0][column])
+            else:
+                # Return an empty list and 'None' for the timestamp
+                return ([], None)
+        
 
     def retrieve_command_poll_rate(self):
         # Get the latest state poll rate values
@@ -295,8 +331,13 @@ class vms_db(object):
                 ORDER BY `Recording_Session_State`.`state_index` DESC
                 LIMIT 1
         '''.format(column)
-        self.cursor.execute(stmt)
-        row = self.cursor.fetchone()
+        
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            row = self.cursor.fetchone()
+        
+        
         if row:
             return row[column]
         else:
@@ -307,45 +348,49 @@ class vms_db(object):
 #
 #       First increment and create new recording session
 #    
-        self.cursor.execute('''
-            INSERT INTO `stepSATdb_Flight`.`Recording_Sessions` (`datetime_created`) VALUES ( NOW() )
-                        ''')
-        self.db.commit()
-
-#
-#       Get the new recording_session_id and then post in the Recording_Sessions_State table 
-
-        stmt = '''
-            SELECT * 
-                FROM `stepSATdb_Flight`.`Recording_Sessions`
-                ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
-         '''
-        self.cursor.execute(stmt)
-        row_recording_session = self.cursor.fetchone()
         
-        stmt = '''
-            SELECT *
-                FROM `stepSATdb_Flight`.`Recording_Session_State`
-                ORDER BY `Recording_Session_State`.`Recording_Sessions_recording_session_id` DESC
-                LIMIT 1
-        '''
-        self.cursor.execute(stmt)
-        row_recording_session_state = self.cursor.fetchone()   
+        with self.lock:
+        
+            self.cursor.execute('''
+                INSERT INTO `stepSATdb_Flight`.`Recording_Sessions` (`datetime_created`) VALUES ( NOW() )
+                            ''')
+            self.db.commit()
 
-        row_recording_session_state['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']                  
+    #
+    #       Get the new recording_session_id and then post in the Recording_Sessions_State table 
 
-        self.cursor.execute('''
-           INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`, 
-                `current_flight_phase`, `data_download_poll_rate`, `command_poll_rate`, `command_syslog_poll_rate`, 
-                `ethernet_link_state`, `serial_link_state`, `active_board`, `last_FRNCS_sync`, 
-                `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`) VALUES ( 
-                 %(state_index)s, %(current_mode)s, 
-                %(current_flight_phase)s, %(data_download_poll_rate)s, %(command_poll_rate)s, %(command_syslog_poll_rate)s, 
-                %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s, 
-                %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s )
-                        ''', row_recording_session_state)   
-        self.db.commit()
+            stmt = '''
+                SELECT * 
+                    FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
+             '''
+            self.cursor.execute(stmt)
+            row_recording_session = self.cursor.fetchone()
+        
+            stmt = '''
+                SELECT *
+                    FROM `stepSATdb_Flight`.`Recording_Session_State`
+                    ORDER BY `Recording_Session_State`.`Recording_Sessions_recording_session_id` DESC
+                    LIMIT 1
+            '''
+            self.cursor.execute(stmt)
+            row_recording_session_state = self.cursor.fetchone()   
 
+            row_recording_session_state['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']                  
+
+            self.cursor.execute('''
+               INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`, 
+                    `current_flight_phase`, `data_download_poll_rate`, `command_poll_rate`, `command_syslog_poll_rate`, 
+                    `ethernet_link_state`, `serial_link_state`, `active_board`, `last_FRNCS_sync`, 
+                    `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`) VALUES ( 
+                     %(state_index)s, %(current_mode)s, 
+                    %(current_flight_phase)s, %(data_download_poll_rate)s, %(command_poll_rate)s, %(command_syslog_poll_rate)s, 
+                    %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s, 
+                    %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s )
+                            ''', row_recording_session_state)   
+            self.db.commit()
+        
+                
         return None
         
         
@@ -360,7 +405,7 @@ class vms_db(object):
             'W': 'error',
             'TIME': 'error',
             'ERR': 'error',
-            'CALL TYPE': ' ',
+            'CALL TYPE': '',
             'CALL DURATION': '',
             'NUMBER': '',
             'PROVIDER' : '',
@@ -381,36 +426,38 @@ class vms_db(object):
             SELECT `recording_session_id` 
                 FROM `stepSATdb_Flight`.`Recording_Sessions`
                 ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
-         '''
-        self.cursor.execute(stmt)
-        row_recording_session = self.cursor.fetchone()        
+        '''
         
-        status.update(row_recording_session)         
+        with self.lock:
+            self.cursor.execute(stmt)
+            row_recording_session = self.cursor.fetchone()        
+            status.update(row_recording_session)         
         
-        stmt = '''
-            SELECT `esn` 
-                FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information` LIMIT 1
-         '''
-        self.cursor.execute(stmt)
-        row_esn = self.cursor.fetchone()
-        status.update(row_esn)  
-        print(str(status)) 
+            stmt = '''
+                SELECT `esn` 
+                    FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information` LIMIT 1
+             '''
+            self.cursor.execute(stmt)
+            row_esn = self.cursor.fetchone()
+            status.update(row_esn)  
+            
+            self.cursor.execute('''
+               INSERT INTO `stepSATdb_Flight`.`LinkStar_Duplex_State` (`esn`, `call_type`, 
+                    `call_duration`, `call_number`, `provider`, `service_available`, 
+                    `service_mode`, `call_state`, `registration`, `rssi`, 
+                    `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`) VALUES ( 
+                     %(esn)s, %(CALL TYPE)s, 
+                    %(CALL DURATION)s, %(NUMBER)s, %(PROVIDER)s, %(SERVICE AVAILABLE)s, 
+                    %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
+                    %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
+                    %(N)s, %(W)s, %(ERR)s )
+                            ''', status)   
+            self.db.commit()                                
+        self.connect_to_ground(status)
+            
         
-        self.cursor.execute('''
-           INSERT INTO `stepSATdb_Flight`.`LinkStar_Duplex_State` (`esn`, `call_type`, 
-                `call_duration`, `call_number`, `provider`, `service_available`, 
-                `service_mode`, `call_state`, `registration`, `rssi`, 
-                `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`) VALUES ( 
-                 %(esn)s, %(CALL TYPE)s, 
-                %(CALL DURATION)s, %(NUMBER)s, %(PROVIDER)s, %(SERVICE AVAILABLE)s, 
-                %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
-                %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
-                %(N)s, %(W)s, %(ERR)s )
-                        ''', status)   
-        self.db.commit()                                
-        self.connect_to_ground()
 
-    def connect_to_ground(self):
+    def connect_to_ground(self, status):
         # look up server address and connect method (eth or linkstar), and current connection state
         
         stmt = '''
@@ -423,52 +470,61 @@ class vms_db(object):
                 )
             LIMIT 1
         '''
-        self.cursor.execute(stmt)
-        results = self.cursor.fetchone()
-        connected = results['test_connection']
-        method = results['connection_type']
         
-        if connected == 0:
+        with self.lock:
+            
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchone()
+            connected = results['test_connection']
+            method = results['connection_type']
             stmt = '''
-                SELECT `Ground_Server`.`test_server`
-                    FROM `stepSATdb_Flight`.`Ground_Server`
-                    WHERE `Ground_Server`.`ground_server_index` = 1
+                SELECT `QS_Servers`.`test_server`
+                    FROM `stepSATdb_Flight`.`QS_Servers`
                 LIMIT 1
             '''
             self.cursor.execute(stmt)
             results = self.cursor.fetchone()
             server_address = results['test_server']
 
+        if not connected:
+            syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
             if method == 'Ethernet':
-                connected = True
+                connected = False
+                with open('/sys/class/net/eth0/carrier') as f:
+                    connected = (1 == int(f.read()))
             elif method == 'LinkStar':
                 if status['CALL STATE'] == 'TIA_PPP_MDT': 
                     connected = True
-                elif status['CALL STATE'] == 'IDLE':
-                    connected = self.call('777')
-                    # If we were able to connect, wait about 10 seconds so we can
-                    # ping immediately
-                    if connected:
-                        time.sleep(10)
+                elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
+                    (avail, rssi) = self.radio.is_service_available()
+                    syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}'.format(avail, rssi))
+                    if avail:
+                        connected = self.call('777')
+                        syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
+                        # If we were able to connect, wait about 10 seconds so we can
+                        # ping immediately
+                        if connected:
+                            time.sleep(10)
             else:
-                # Error?
-                pass
+                self._log_msg('Unsupported ground connection method: {}'.format(method))
 
-            if connected:
-                server_state = ping(server_address)
+        if connected:
+            server_state = ping(server_address)
 
             #update db with newly discovered server state
             stmt = '''
                 UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                    SET test_connection=1 
+                    SET test_connection=%s
                     WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
                     )
             '''
-                    
-            self.cursor.execute(stmt)
-            self.db.commit()
+
+            with self.lock:
+                self.cursor.execute(stmt, (server_state,))
+                self.db.commit()
+            
                 
              
     def call(self, number):
