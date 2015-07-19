@@ -11,12 +11,12 @@
 
 NAME=db_command_processing
 PROG=command_processing.py
-DAEMON=/opt/qs/bin/$PROG
+DAEMON=/opt/mcp/bin/$PROG
 PIDDIR=/var/run
 PIDFILE=$PIDDIR/db_command_processing.pid
 DAEMONUSER=root
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
-ARGS='-- --mcp-address=192.168.0.198 --mcp-username=mirage --mcp-password=mirage --domu-ip-range=200'
+ARGS='-- --mcp-address=192.168.7.2 --mcp-username=root --mcp-password=  --domu-ip-range=200'
 
 test -x $DAEMON || exit 0
 
