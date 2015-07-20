@@ -415,7 +415,7 @@ class vms(object):
     def call(self):
         cmds = self.commands.pop('CALL')
         try:
-        		self.db.call('777')
+            self.db.call('777')
             self.db.complete_commands(cmds, True)
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))

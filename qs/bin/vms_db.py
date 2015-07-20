@@ -462,7 +462,8 @@ class vms_db(object):
         
         stmt = '''
             SELECT `Recording_Session_State`.`test_connection`,
-                   `Recording_Session_State`.`connection_type`
+                   `Recording_Session_State`.`connection_type`,
+                   `Recording_Session_State`.`selected_server`
                 FROM `stepSATdb_Flight`.`Recording_Session_State`
                 WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
                     SELECT MAX(`Recording_Sessions`.`recording_session_id`)
@@ -477,14 +478,43 @@ class vms_db(object):
             results = self.cursor.fetchone()
             connected = results['test_connection']
             method = results['connection_type']
-            stmt = '''
-                SELECT `QS_Servers`.`test_server`
-                    FROM `stepSATdb_Flight`.`QS_Servers`
-                LIMIT 1
-            '''
+            selected_server = results['selected_server']
+            if selected_server == 'PRIMARY':
+               stmt = '''
+                SELECT `QS_Servers`.`primary_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''    
+            elif selected_server == 'ALTERNATE':
+               stmt = '''
+                   SELECT `QS_Servers`.`alternative_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            elif selected_server == 'TEST':
+               stmt = '''
+                   SELECT `QS_Servers`.`test_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            else:
+               stmt = '''
+                   SELECT `QS_Servers`.`test_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+
             self.cursor.execute(stmt)
             results = self.cursor.fetchone()
-            server_address = results['test_server']
+            
+            if selected_server == 'PRIMARY':
+               server_address = results['primary_server']
+            elif selected_server == 'ALTERNATE':
+               server_address = results['alternative_server']
+            elif selected_server == 'TEST':
+               server_address = results['test_server']
+            else:
+               server_address = results['test_server']           
 
         if not connected:
             syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))

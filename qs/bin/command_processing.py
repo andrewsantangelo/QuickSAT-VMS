@@ -14,7 +14,7 @@ if __name__ == '__main__':
     parser.add_argument('--vms-dbname', default='stepSATdb_Flight', help='name of the QS/VMS database')
     parser.add_argument('--vms-username', default='root', help='username for the QS/VMS database')
     parser.add_argument('--no-vms-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --vms-username)')
-    parser.add_argument('--vms-password', default='quicksat1', help='password for the QS/VMS database')
+    parser.add_argument('--vms-password', default='quicksat', help='password for the QS/VMS database')
     parser.add_argument('--no-vms-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --vms-password)')
     parser.add_argument('--mcp-address', required=True, help='address (IP or URL) of the system that MCP is installed on')
     parser.add_argument('--mcp-port', type=int, default=22, help='UDP port used by the system that MCP is installed on')
@@ -47,6 +47,7 @@ if __name__ == '__main__':
             # a dict() object to the vms class constructor
             conn = vms.vms(**vars(args))
             conn.run()
+            run = False
         except KeyboardInterrupt as e:
             msg = 'caught keyboard interrupt, exiting...'
             syslog.syslog(syslog.LOG_INFO, msg)
@@ -55,4 +56,5 @@ if __name__ == '__main__':
             msg = 'RESTARTING, caught exception: {}'.format(traceback.format_exception(*sys.exc_info()))
             syslog.syslog(syslog.LOG_ERR, msg)
             run = False
+
 
