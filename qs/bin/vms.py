@@ -202,7 +202,7 @@ class vms(object):
 
             # Construct the new MCT
             newmct = mct.mct()
-            newmct.addapps(mctapps, self.args['mcp']['address'], self.args['domu']['ip_range'])
+            newmct.addapps(mctapps, self.args['mcp']['address'], self.args['domu']['ip_range'], self.args['vms']['password'])
             newmct.close()
 
             # Restart MCP
