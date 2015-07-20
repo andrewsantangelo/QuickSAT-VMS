@@ -25,18 +25,19 @@ class gsp1720(object):
             'dsrdtr': False,
             'writeTimeout': 1,
         }
-        self.dtr_pin = dtr_pin
+#        self.dtr_pin = dtr_pin
+        self.dtr_pin = 48
         self.serial = serial.Serial(**self.args)
         
         # Phone option to ignore DTR changes after a call starts. Adds stability.
         self._command('AT&D0')
         
-        # Need to detect when the pin has already been exported and not try
-        # again, otherwise this causes trouble
         if self.dtr_pin:
-            # Enable the GPIO1_16 signal to be used to enable DTR
-            with open('/sys/class/gpio/export', 'w') as f:
-                f.write(str(self.dtr_pin))
+            import os.path
+            if not os.path.exists('/sys/class/gpio/gpio{}'.format(self.dtr_pin)):
+                # Enable the GPIO1_16 signal to be used to enable DTR
+                with open('/sys/class/gpio/export', 'w') as f:
+                    f.write(str(self.dtr_pin))
 
             with open('/sys/class/gpio/gpio{}/direction'.format(self.dtr_pin), 'w') as f:
                 f.write('out')

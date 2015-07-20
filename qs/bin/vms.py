@@ -11,6 +11,7 @@ import mct
 import vms_db
 import mcp_target
 import periodic_timer
+import vms_db_ground
 
 def write_json_data(data, filename):
     f = open(filename, 'w')
@@ -56,6 +57,12 @@ class vms(object):
 
         # Connect to the QS/VMS DB
         self.db = vms_db.vms_db(**self.args['vms'])
+        
+        gs_args = self.db.get_db_ground_args()
+        self.args['vms']['address'] = gs_args['server']
+        self.args['vms']['username'] = gs_args['username']
+        self.args['vms']['password'] = gs_args['password']
+        self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms'])
 
         # Connect to the MCP target
         self.mcp = mcp_target.mcp_target(**self.args['mcp'])
@@ -79,7 +86,7 @@ class vms(object):
         self.threads.append(t)
         
         # Use a pre-defined radio status poll time for now (39 seconds)
-        t = periodic_timer.PeriodicTimer(self.radio_status, 39)
+        t = periodic_timer.PeriodicTimer(self.radio_status, 60)
         self.threads.append(t)
 
     def radio_status(self):
@@ -87,7 +94,7 @@ class vms(object):
         self.db.get_radio_status()
 
         # Keep the poll rate constant for now, it shouldn't change
-        return 39        
+        return 60        
 
 
     def __del__(self):
@@ -155,9 +162,9 @@ class vms(object):
             elif 'CREATE_REC_SESSION' in self.commands:
                 self.create_rec_session()
             elif 'CALL' in self.commands:
-            		self.call()
+                self.call()
             elif 'HANGUP' in self.commands:
-            		self.hangup()
+                self.hangup()
             else:
                 self.handle_unknown_command()
 
