@@ -417,7 +417,8 @@ class vms_db(object):
             'ROAMING' : 'NO',
             'GATEWAY' : '0',
             'recording_session_id' : '0',
-            'esn': '11111111'
+            'esn': '11111111',
+            'time_recorded':''
         }         
         status.update(self.radio.get_status()[1])         
         status.update(self.radio.get_location()[1])         
@@ -445,12 +446,12 @@ class vms_db(object):
                INSERT INTO `stepSATdb_Flight`.`LinkStar_Duplex_State` (`esn`, `call_type`, 
                     `call_duration`, `call_number`, `provider`, `service_available`, 
                     `service_mode`, `call_state`, `registration`, `rssi`, 
-                    `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`) VALUES ( 
+                    `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`,`time_recorded`) VALUES ( 
                      %(esn)s, %(CALL TYPE)s, 
                     %(CALL DURATION)s, %(NUMBER)s, %(PROVIDER)s, %(SERVICE AVAILABLE)s, 
                     %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
                     %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
-                    %(N)s, %(W)s, %(ERR)s )
+                    %(N)s, %(W)s, %(ERR)s, NOW() )
                             ''', status)   
             self.db.commit()                                
         self.connect_to_ground(status)
