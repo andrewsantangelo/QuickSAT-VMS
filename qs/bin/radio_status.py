@@ -34,16 +34,18 @@ class gsp1720(object):
         # Need to detect when the pin has already been exported and not try
         # again, otherwise this causes trouble
         if self.dtr_pin:
-            # Enable the GPIO1_16 signal to be used to enable DTR
-            with open('/sys/class/gpio/export', 'w') as f:
-                f.write(str(self.dtr_pin))
-
+            import os.path
+            if not os.path.exists('/sys/class/gpio/gpio{}'.format(self.dtr_pin)):
+                # Enable the GPIO1_16 signal to be used to enable DTR
+                with open('/sys/class/gpio/export', 'w') as f:
+                   f.write(str(self.dtr_pin))
+                    
             with open('/sys/class/gpio/gpio{}/direction'.format(self.dtr_pin), 'w') as f:
                 f.write('out')
-
+                
             with open('/sys/class/gpio/gpio{}/value'.format(self.dtr_pin), 'w') as f:
                 f.write('1')
-
+                
     def __del__(self):
         self.close()
 
