@@ -84,7 +84,103 @@ class vms_db(object):
                 self.db.commit()
             except:
                 syslog.syslog(syslog.LOG_ERR, 'Error logging message "{}": {}'.format(msg, sys.exc_info()[1]))
+                
+    def get_db_ground_args(self):
+        stmt = '''
+           SELECT * 
+               FROM `stepSATdb_Flight`.`QS_Servers` LIMIT 1
+        '''    
+        with self.lock:
+            self.cursor.execute(stmt)
+            all_servers = self.cursor.fetchone()
+
+        if all_servers['selected_server'] == 'TEST':
+            selected_server = {
+                'server': all_servers['test_server'],
+                'username': all_servers['test_username'],
+                'password': all_servers['test_password']
+            }
+        elif all_servers['selected_server'] == 'PRIMARY':
+            selected_server = {
+                'server': all_servers['primary_server'],
+                'username': all_servers['primary_username'],
+                'password': all_servers['primary_password']
+            } 
+        elif all_servers['selected_server'] == 'ALTERNATE':
+            selected_server = {
+                'server': all_servers['alternate_server'],
+                'username': all_servers['alternate_username'],
+                'password': all_servers['alternate_password']
+            } 
+        elif all_servers['selected_server'] == 'NONE':
+            selected_server = {
+                 'server': '',
+                 'username': '',
+                 'password': ''
+            } 
+        else:
+             return None
         
+        return selected_server            
+        
+    def sync_selected_db_table(self):
+        import os
+        import os.path
+        import pwd
+        import grp
+        
+        if not os.path.exists('/opt/qs/tmp'):
+            os.mkdir('/opt/qs/tmp')
+        
+        uid = pwd.getpwnam("mysql").pw_uid
+        gid = grp.getgrnam("mysql").gr_gid
+        if not os.stat('/opt/qs/tmp').st_uid == uid:
+            os.chown('/opt/qs/tmp', uid, gid)
+        
+        if os.path.exists('/opt/qs/tmp/retrieve_flight_data_object.csv'):
+            os.remove('/opt/qs/tmp/retrieve_flight_data_object.csv')
+            
+        stmt_event_key = '''
+            SELECT `flight_data_object_event_key` FROM `stepSATdb_Flight`.`Flight_Pointers`    
+                WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''
+        stmt_num_records = '''
+            SELECT `flight_data_object_num_records_download` FROM `stepSATdb_Flight`.`Recording_Session_State`    
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''
+        stmt_data_write = '''
+            SELECT * FROM `stepSATdb_Flight`.`Flight_Data_Object` LIMIT %s,%s INTO OUTFILE '/opt/qs/tmp/retrieve_flight_data_object.csv' 
+               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+        '''
+        stmt_pointer_update = '''
+            SELECT MAX FROM `Flight_Data_Object`.`event_key` LIMIT %s, %s 
+        '''
+        stmt_write_pointer = '''
+            UPDATE `stepSATdb_Flight`.`Flight_Pointers`
+                SET `Flight_Pointers`.`flight_data_object_event_key` = %s
+                    WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''
+        with self.lock:
+            self.cursor.execute(stmt_event_key)
+            event_key = self.cursor.fetchone()
+            
+            self.cursor.execute(stmt_num_records)
+            num_records = self.cursor.fetchone()
+            
+            try:
+                self.cursor.execute(stmt_data_write, (event_key['flight_data_object_event_key'], num_records['flight_data_object_num_records_download']))
+                self.cursor.execute(stmt_pointer_update, (event_key['flight_data_object_event_key'], num_records['flight_data_object_num_records_download']))
+                pointer_update = self.cursor.fetchone()
+                self.cursor.execute(stmt_write_pointer, (pointer_update['event_key'] + 1))
+            except:
+                # TODO: consider writing to syslog or message log
+                
 
     def open(self):
         with self.lock:
