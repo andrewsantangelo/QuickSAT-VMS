@@ -123,7 +123,7 @@ class vms_db(object):
         
         return selected_server            
         
-    def sync_selected_db_table(self):
+    def send_flight_data_object(self):
         import os
         import os.path
         import pwd
