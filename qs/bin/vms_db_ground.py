@@ -28,7 +28,7 @@ class vms_db_ground(object):
             'host': address,
             'port': port,
             'database': dbname,
-            'ssl_ca': cert
+            'ssl_ca': cert,
         }
         if not self.config['ssl_ca']:
             del self.config['ssl_ca']         
@@ -97,17 +97,26 @@ class vms_db_ground(object):
                 self.db.close()
             
       
-"""
-     def sync_flight_data_object():
-         #call vms_db function to retrieve db contents
-         #write those contents to ground db
-         self.db.
-     
-     def sync_flight_data_binary():
-     
-     def sync_flight_data():
-     
-"""
+
+    def sync_selected_db_table(self, selected_table_name):
+        selected_table_name_quotes = '`{}`'.format(selected_table_name)
+        stmt = '''
+            LOAD DATA LOCAL INFILE '/opt/qs/tmp/{}.csv' 
+                INTO TABLE `stepSATdb_Flight`.{} FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
+                ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+        '''.format(selected_table_name, selected_table_name_quotes)
+        stmt_update_last_sync_time = '''
+            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+                    WHERE `Recording_Session_State.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            self.cursor.execute(stmt_update_last_sync_time)
+            self.db.commit()
+
         
         
       

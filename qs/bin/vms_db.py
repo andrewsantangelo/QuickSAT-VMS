@@ -6,6 +6,7 @@ import sys
 import radio_status
 import subprocess
 import threading
+import string
 
 # To connect to the QS/VMS database, install with
 #   $ pip install MySQL-python
@@ -123,7 +124,7 @@ class vms_db(object):
         
         return selected_server            
         
-    def send_flight_data_object(self):
+    def sync_selected_db_table(self, selected_table_name):
         import os
         import os.path
         import pwd
@@ -137,54 +138,69 @@ class vms_db(object):
         if not os.stat('/opt/qs/tmp').st_uid == uid:
             os.chown('/opt/qs/tmp', uid, gid)
         
-        if os.path.exists('/opt/qs/tmp/retrieve_flight_data_object.csv'):
-            os.remove('/opt/qs/tmp/retrieve_flight_data_object.csv')
+        if os.path.exists('/opt/qs/tmp/{}.csv'.format(selected_table_name)):
+            os.remove('/opt/qs/tmp/{}.csv'.format(selected_table_name))
             
+            
+        #----Get event_key number from Flight_Pointers table ----
         stmt_event_key = '''
-            SELECT `flight_data_object_event_key` FROM `stepSATdb_Flight`.`Flight_Pointers`    
+            SELECT `{}_event_key` FROM `stepSATdb_Flight`.`Flight_Pointers`    
                 WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
                     SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                         FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''
-        stmt_num_records = '''
-            SELECT `flight_data_object_num_records_download` FROM `stepSATdb_Flight`.`Recording_Session_State`    
-                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                        FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''
-        stmt_data_write = '''
-            SELECT * FROM `stepSATdb_Flight`.`Flight_Data_Object` LIMIT %s,%s INTO OUTFILE '/opt/qs/tmp/retrieve_flight_data_object.csv' 
-               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
-        '''
-        stmt_pointer_update = '''
-            SELECT MAX FROM `Flight_Data_Object`.`event_key` LIMIT %s, %s 
-        '''
-        stmt_write_pointer = '''
-            UPDATE `stepSATdb_Flight`.`Flight_Pointers`
-                SET `Flight_Pointers`.`flight_data_object_event_key` = %s
-                    WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''
+        '''.format(string.lower(selected_table_name))
         with self.lock:
             self.cursor.execute(stmt_event_key)
             event_key = self.cursor.fetchone()
-            
+        
+        #----Get number of records to download from Recording_Session_State table----
+        stmt_num_records = '''
+            SELECT `{}_num_records_download` FROM `stepSATdb_Flight`.`Recording_Session_State`    
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''.format(string.lower(selected_table_name))
+        with self.lock:
             self.cursor.execute(stmt_num_records)
             num_records = self.cursor.fetchone()
-            
+
+        #----Formulate the statement to write the selected table to the file----
+        stmt_data_write = '''
+            SELECT * FROM `stepSATdb_Flight`.`{}` LIMIT {},{} INTO OUTFILE '/opt/qs/tmp/{}.csv' 
+               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+        '''.format(selected_table_name, event_key['{}_event_key'.format(string.lower(selected_table_name))], num_records['{}_num_records_download'.format(string.lower(selected_table_name))], selected_table_name)
+        with self.lock:
             try:
-                self.cursor.execute(stmt_data_write, (event_key['flight_data_object_event_key'], num_records['flight_data_object_num_records_download']))
-                self.cursor.execute(stmt_pointer_update, (event_key['flight_data_object_event_key'], num_records['flight_data_object_num_records_download']))
-                pointer_update = self.cursor.fetchone()
-                self.cursor.execute(stmt_write_pointer, (pointer_update['event_key'] + 1))
+                self.cursor.execute(stmt_data_write)
             except:
                 # TODO: consider writing to syslog or message log
-                
+                pass
+        
+        #----Update the event_key pointer for next upload ----
+        stmt_highest_pointer = '''SELECT MAX(`event_key`) AS 'pointer' FROM `stepSATdb_Flight`.`{}`'''.format(selected_table_name)
+        with self.lock:
+            self.cursor.execute(stmt_highest_pointer)
+            highest_pointer = self.cursor.fetchone()
+            
+        last_used_key = (event_key['{}_event_key'.format(string.lower(selected_table_name))] + num_records['{}_num_records_download'.format(string.lower(selected_table_name))])
+        if highest_pointer['pointer'] <=  last_used_key:
+            new_event_key = highest_pointer['pointer'] + 1
+        else:
+            new_event_key = last_used_key + 1
+        
+        stmt_write_pointer = '''
+            UPDATE `stepSATdb_Flight`.`Flight_Pointers`
+                SET `Flight_Pointers`.`{}_event_key` = {}
+                    WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''.format(string.lower(selected_table_name), new_event_key)
+        with self.lock:
+            self.cursor.execute(stmt_write_pointer)
 
+                
     def open(self):
         with self.lock:
-        
             if not self.db:
                 self.db = mysql.connector.connect(**self.config)
               

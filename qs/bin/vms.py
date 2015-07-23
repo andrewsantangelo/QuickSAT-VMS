@@ -59,10 +59,15 @@ class vms(object):
         self.db = vms_db.vms_db(**self.args['vms'])
         
         gs_args = self.db.get_db_ground_args()
-        self.args['vms']['address'] = gs_args['server']
-        self.args['vms']['username'] = gs_args['username']
-        self.args['vms']['password'] = gs_args['password']
-        self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms'])
+        self.args['vms_ground'] = {
+            'address': gs_args['server'],
+            'port': vms_port,
+            'username': gs_args['username'],
+            'password': gs_args['password'],
+            'cert': vms_cert,
+            'dbname': vms_dbname
+         }
+        self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
 
         # Connect to the MCP target
         self.mcp = mcp_target.mcp_target(**self.args['mcp'])
@@ -85,9 +90,13 @@ class vms(object):
         t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_poll_rate())
         self.threads.append(t)
         
-        # Use a pre-defined radio status poll time for now (39 seconds)
+        # Use a pre-defined radio status poll time for now 
         t = periodic_timer.PeriodicTimer(self.radio_status, 60)
         self.threads.append(t)
+        
+        # For the db synching functions
+        
+            
 
     def radio_status(self):
         # Have the VMS DB connection retrieve and update the radio status
@@ -165,6 +174,12 @@ class vms(object):
                 self.call()
             elif 'HANGUP' in self.commands:
                 self.hangup()
+            elif 'SYNC_FLIGHT_DATA_OBJECT' in self.commands:
+                self.sync_flight_data_object()
+            elif 'SYNC_FLIGHT_DATA_BINARY' in self.commands:
+                self.sync_flight_data_binary()
+            elif 'SYNC_FLIGHT_DATA' in self.commands:
+                self.sync_flight_data()
             else:
                 self.handle_unknown_command()
 
@@ -434,4 +449,33 @@ class vms(object):
             self.db.complete_commands(cmds, True)
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            
+    def sync_flight_data_object(self):
+        cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT')
+        try:
+            self.db.sync_selected_db_table('Flight_Data_Object')
+            self.db_ground.sync_selected_db_table('Flight_Data_Object')
+            self.db.complete_commands(cmds, True)
+        except:
+            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            
+    def sync_flight_data_binary(self):
+        cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY')
+        try:
+            self.db.sync_selected_db_table('Flight_Data_Binary')
+            self.db_ground.sync_selected_db_table('Flight_Data_Binary')
+            self.db.complete_commands(cmds, True)
+        except:
+            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+    
+    def sync_flight_data(self):
+        cmds = self.commands.pop('SYNC_FLIGHT_DATA')
+        try:
+            self.db.sync_selected_db_table('Flight_Data')
+            self.db_ground.sync_selected_db_table('Flight_Data')
+            self.db.complete_commands(cmds, True)
+        except:
+            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+
+    
    
