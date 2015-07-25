@@ -471,6 +471,7 @@ class vms(object):
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_object(self):
+        print "flight data object test"
         cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT', None)
         try:
             self.db.sync_selected_db_table('Flight_Data_Object')
@@ -482,6 +483,7 @@ class vms(object):
                 self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_binary(self):
+        print "flight data binary test"
         cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY', None)
         try:
             self.db.sync_selected_db_table('Flight_Data_Binary')
@@ -493,6 +495,7 @@ class vms(object):
                 self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_flight_data(self):
+        print "flight data test"
         cmds = self.commands.pop('SYNC_FLIGHT_DATA', None)
         try:
             self.db.sync_selected_db_table('Flight_Data')
@@ -504,6 +507,7 @@ class vms(object):
                 self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_command_log(self):
+        print "command log test"
         cmds = self.commands.pop('SYNC_COMMAND_LOG', None)
         try:
             self.db.sync_selected_db_table('Command_Log')
@@ -515,6 +519,7 @@ class vms(object):
                 self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self):
+        print "system message test"
         cmds = self.commands.pop('SYNC_SYSTEM_MESSAGES', None)
         try:
             self.db.sync_selected_db_table('System_Messages')
