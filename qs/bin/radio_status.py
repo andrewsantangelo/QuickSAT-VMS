@@ -41,10 +41,10 @@ class gsp1720(object):
 
             with open('/sys/class/gpio/gpio{}/direction'.format(self.dtr_pin), 'w') as f:
                 f.write('out')
-
+                
             with open('/sys/class/gpio/gpio{}/value'.format(self.dtr_pin), 'w') as f:
                 f.write('1')
-
+                
     def __del__(self):
         self.close()
 
