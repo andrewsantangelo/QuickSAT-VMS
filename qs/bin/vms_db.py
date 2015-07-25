@@ -184,9 +184,9 @@ class vms_db(object):
             
         last_used_key = (event_key['{}_event_key'.format(string.lower(selected_table_name))] + num_records['{}_num_records_download'.format(string.lower(selected_table_name))])
         if highest_pointer['pointer'] <=  last_used_key:
-            new_event_key = highest_pointer['pointer'] + 1
+            new_event_key = highest_pointer['pointer'] 
         else:
-            new_event_key = last_used_key + 1
+            new_event_key = last_used_key 
         
         stmt_write_pointer = '''
             UPDATE `stepSATdb_Flight`.`Flight_Pointers`
@@ -420,23 +420,26 @@ class vms_db(object):
 
     def retrieve_command_poll_rate(self):
         # Get the latest state poll rate values
-        return self.retrieve_poll_rate('command_poll_rate')
+        return self.retrieve_push_poll_rate('command_poll_rate')
+        
+    def retrieve_command_log_push_rate(self):
+        # Get the latest state push rate values
+        return self.retrieve_push_poll_rate('command_push_rate')
 
-    def retrieve_flight_data_poll_rate(self):
-        # Get the latest state poll rate values
-        return self.retrieve_poll_rate('data_download_poll_rate')
+    def retrieve_data_download_push_rate(self):
+        # Get the latest state push rate values
+        return self.retrieve_push_poll_rate('data_download_push_rate')
 
-    def retrieve_cmd_log_poll_rate(self):
-        # Get the latest state poll rate values
-        return self.retrieve_poll_rate('command_syslog_poll_rate')
+    def retrieve_command_syslog_push_rate(self):
+        # TODO: replace with reference to real system message push rate
+        # Get the latest state push rate values
+        return self.retrieve_push_poll_rate('command_syslog_push_rate')
+        
+    def retrieve_binary_data_push_rate(self):
+        return self.retrieve_push_poll_rate('binary_data_push_rate')
 
-    def retrieve_system_msgs_poll_rate(self):
-        # TODO: replace with reference to real system message poll rate
-        # Get the latest state poll rate values
-        return self.retrieve_poll_rate('command_syslog_poll_rate')
-
-    def retrieve_poll_rate(self, column):
-        # Get the latest state poll rate values
+    def retrieve_push_poll_rate(self, column):
+        # Get the latest state push/poll rate values
         stmt = '''
             SELECT `Recording_Session_State`.`{}`,`Recording_Session_State`.`state_index`
                 FROM `stepSATdb_Flight`.`Recording_Session_State`
@@ -491,16 +494,38 @@ class vms_db(object):
             row_recording_session_state['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']                  
 
             self.cursor.execute('''
-               INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`, 
-                    `current_flight_phase`, `data_download_poll_rate`, `command_poll_rate`, `command_syslog_poll_rate`, 
-                    `ethernet_link_state`, `serial_link_state`, `active_board`, `last_FRNCS_sync`, 
-                    `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`) VALUES ( 
-                     %(state_index)s, %(current_mode)s, 
-                    %(current_flight_phase)s, %(data_download_poll_rate)s, %(command_poll_rate)s, %(command_syslog_poll_rate)s, 
-                    %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s, 
-                    %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s )
-                            ''', row_recording_session_state)   
+               INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`,
+                    `current_flight_phase`, `data_download_push_rate`, `command_poll_rate`, `command_syslog_push_rate`,
+                    `ethernet_link_state`, `serial_link_state`, `active_board`, `last_FRNCS_sync`,
+                    `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`, `connection_type`, `gateway_ip_address`, `use_wired_link`, `selected_ground_server`, `binary_data_push_rate`, `flight_data_num_records_download`, `flight_data_object_num_records_download`,  `flight_data_binary_num_records_download`,  `command_log_num_records_download`,  `system_messages_num_records_download`,  `sync_to_ground`,  `command_push_rate`) VALUES (
+                     %(state_index)s, %(current_mode)s,
+                    %(current_flight_phase)s, %(data_download_push_rate)s, %(command_poll_rate)s, %(command_syslog_push_rate)s,
+                    %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s,
+                    %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s, %(connection_type)s, %(gateway_ip_address)s, %(use_wired_link)s, %(selected_ground_server)s, %(binary_data_push_rate)s, %(flight_data_num_records_download)s, %(flight_data_object_num_records_download)s, %(flight_data_binary_num_records_download)s, %(command_log_num_records_download)s, %(system_messages_num_records_download)s, %(sync_to_ground)s, %(command_push_rate)s )
+            ''', row_recording_session_state)
             self.db.commit()
+        
+         #
+         #      Create a new record in Flight_Pointers to coincide with the new recording_session_id.
+         #
+
+            stmt = '''
+               SELECT *
+                 FROM `stepSATdb_Flight`.`Flight_Pointers`
+                 ORDER BY `Flight_Pointers`.`Recording_Sessions_recording_session_id` DESC LIMIT 1
+             '''
+            self.cursor.execute(stmt)
+            row_flight_pointers = self.cursor.fetchone()
+
+            row_flight_pointers['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']
+            self.cursor.execute('''
+               INSERT INTO `stepSATdb_Flight`.`Flight_Pointers` (`Recording_Sessions_recording_session_id`, `flight_data_event_key`,
+                    `flight_data_binary_event_key`, `flight_data_object_event_key`, `system_messages_event_key` ) VALUES (
+                     %(Recording_Sessions_recording_session_id)s, %(flight_data_event_key)s,
+                    %(flight_data_binary_event_key)s, %(flight_data_object_event_key)s, %(system_messages_event_key)s )
+            ''', row_flight_pointers)
+            self.db.commit()
+
         
                 
         return None

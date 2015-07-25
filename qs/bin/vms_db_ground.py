@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+
 import syslog
 import itertools
 import sys
@@ -108,11 +109,12 @@ class vms_db_ground(object):
         stmt_update_last_sync_time = '''
             UPDATE `stepSATdb_Flight`.`Recording_Session_State`
                 SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
-                    WHERE `Recording_Session_State.`Recording_Sessions_recording_session_id`=(
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
+            #print "test1"
             self.cursor.execute(stmt)
             self.cursor.execute(stmt_update_last_sync_time)
             self.db.commit()

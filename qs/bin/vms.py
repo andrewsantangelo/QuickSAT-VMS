@@ -72,7 +72,7 @@ class vms(object):
         # Connect to the MCP target
         self.mcp = mcp_target.mcp_target(**self.args['mcp'])
 
-        self.commands = None
+        self.commands = {}
 
         self.threads = []
 
@@ -94,16 +94,32 @@ class vms(object):
         t = periodic_timer.PeriodicTimer(self.radio_status, 60)
         self.threads.append(t)
         
-        # For the db synching functions
+        # Flight_Data and Flight_Data_Object use data_download_push_rate
+        t= periodic_timer.PeriodicTimer(self.sync_flight_data, self.db.retrieve_data_download_push_rate())
+        self.threads.append(t)
         
-            
+        t = periodic_timer.PeriodicTimer(self.sync_flight_data_object, self.db.retrieve_data_download_push_rate())
+        self.threads.append(t)
+        
+        # Flight_Data_Binary uses binary_data_push_rate
+        t=periodic_timer.PeriodicTimer(self.sync_flight_data_binary, self.db.retrieve_binary_data_push_rate())
+        self.threads.append(t)
+        
+        # Command_Log uses command_push_rate
+        t = periodic_timer.PeriodicTimer(self.sync_command_log, self.db.retrieve_command_log_push_rate())
+        self.threads.append(t)
+        
+        # System_Messages uses command_syslog_push_rate
+        t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
+        self.threads.append(t)
+        
 
     def radio_status(self):
         # Have the VMS DB connection retrieve and update the radio status
         self.db.get_radio_status()
 
         # Keep the poll rate constant for now, it shouldn't change
-        return 60        
+        return 39        
 
 
     def __del__(self):
@@ -126,22 +142,22 @@ class vms(object):
     def periodic_system_messages(self, _timestamp=[0]):
         (logs, _timestamp[0]) = self.db.retrieve_system_messages(session, _timestamp[0])
         write_json_logs(data, '/opt/qs/outputs/system_messages_{}'.format(_timestamp[0]))
-        return self.db.retrieve_system_msgs_poll_rate()
+        return self.db.retrieve_system_msgs_push_poll_rate()
 
     def periodic_command_log(self, _timestamp=[0]):
         (log, _timestamp[0]) = self.db.retrieve_command_logs(session, _timestamp[0])
         write_json_data(log, '/opt/qs/outputs/command_log_{}'.format(_timestamp[0]))
-        return self.db.retrieve_cmd_log_poll_rate()
+        return self.db.retrieve_cmd_log_push_poll_rate()
 
     def periodic_flight_data(self, _timestamp=[0]):
         (data, _timestamp[0]) = self.db.retrieve_flight_data(session, _timestamp[0])
         write_json_data(data, '/opt/qs/outputs/flight_{}'.format(_timestamp[0]))
-        return self.db.retrieve_flight_data_poll_rate()
+        return self.db.retrieve_flight_data_push_poll_rate()
 
     def monitor_input_dir(self, _timestamp=[0]):
         # TODO: periodically check the input directory (or DB?) for new files
         pass
-        return self.db.retrieve_command_poll_rate()
+        return self.db.retrieve_command_push_poll_rate()
 
     def process(self):
         self.commands = self.db.all_pending_commands()
@@ -180,6 +196,10 @@ class vms(object):
                 self.sync_flight_data_binary()
             elif 'SYNC_FLIGHT_DATA' in self.commands:
                 self.sync_flight_data()
+            elif 'SYNC_COMMAND_LOG' in self.commands:
+                self.sync_command_log()
+            elif 'SYNC_SYSTEM_MESSAGES' in self.commands:
+                self.sync_system_messages()
             else:
                 self.handle_unknown_command()
 
@@ -451,31 +471,58 @@ class vms(object):
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_object(self):
-        cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT')
+        cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT', None)
         try:
             self.db.sync_selected_db_table('Flight_Data_Object')
             self.db_ground.sync_selected_db_table('Flight_Data_Object')
-            self.db.complete_commands(cmds, True)
+            if cmds:
+                self.db.complete_commands(cmds, True)
         except:
-            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if cmds:
+                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_binary(self):
-        cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY')
+        cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY', None)
         try:
             self.db.sync_selected_db_table('Flight_Data_Binary')
             self.db_ground.sync_selected_db_table('Flight_Data_Binary')
-            self.db.complete_commands(cmds, True)
+            if cmds:
+                self.db.complete_commands(cmds, True)
         except:
-            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if cmds:
+                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_flight_data(self):
-        cmds = self.commands.pop('SYNC_FLIGHT_DATA')
+        cmds = self.commands.pop('SYNC_FLIGHT_DATA', None)
         try:
             self.db.sync_selected_db_table('Flight_Data')
             self.db_ground.sync_selected_db_table('Flight_Data')
-            self.db.complete_commands(cmds, True)
+            if cmds:
+                self.db.complete_commands(cmds, True)
         except:
-            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if cmds:
+                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+    
+    def sync_command_log(self):
+        cmds = self.commands.pop('SYNC_COMMAND_LOG', None)
+        try:
+            self.db.sync_selected_db_table('Command_Log')
+            self.db_ground.sync_selected_db_table('Command_Log')
+            if cmds:
+                self.db.complete_commands(cmds, True)
+        except:
+            if cmds:
+                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
+    def sync_system_messages(self):
+        cmds = self.commands.pop('SYNC_SYSTEM_MESSAGES', None)
+        try:
+            self.db.sync_selected_db_table('System_Messages')
+            self.db_ground.sync_selected_db_table('System_Messages')
+            if cmds:
+                self.db.complete_commands(cmds, True)
+        except:
+            if cmds:
+                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
    
