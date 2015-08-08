@@ -19,8 +19,11 @@ import string
 import mysql.connector
 
 # utility function to test connection to server
-def ping(address):
-    args = ['ping', '-c1', address]
+def ping(address, method):
+    if method == 'Ethernet':
+        args = ['ping', '-c1', '-I', 'eth0', address]
+    elif method == 'LinkStar':
+        args = ['ping', '-c1', '-I', 'ppp0', address]
     f = open('/dev/null', 'w')
     return (0 == subprocess.call(args, stdout=f))
 
@@ -590,7 +593,7 @@ class vms_db(object):
                     %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
                     %(N)s, %(W)s, %(ERR)s, NOW() )
                             ''', status)   
-            self.db.commit()                                
+            self.db.commit()              
         self.connect_to_ground(status)
             
         
@@ -653,6 +656,7 @@ class vms_db(object):
                server_address = results['test_server']
             else:
                server_address = results['test_server']           
+        print method
 
         if not connected:
             syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
@@ -661,12 +665,13 @@ class vms_db(object):
                 with open('/sys/class/net/eth0/carrier') as f:
                     connected = (1 == int(f.read()))
             elif method == 'LinkStar':
+                print 'service available: {}'.format(status['SERVICE AVAILABLE'])
                 if status['CALL STATE'] == 'TIA_PPP_MDT': 
                     connected = True
                 elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
-                    (avail, rssi) = self.radio.is_service_available()
-                    syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}'.format(avail, rssi))
-                    if avail:
+                    (avail, rssi, roaming) = self.radio.is_service_available()
+                    syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
+                    if avail and roaming == '<NO>':
                         connected = self.call('777')
                         syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
                         # If we were able to connect, wait about 10 seconds so we can
@@ -677,7 +682,13 @@ class vms_db(object):
                 self._log_msg('Unsupported ground connection method: {}'.format(method))
 
         if connected:
-            server_state = ping(server_address)
+            print 'pinging'
+            if method == 'Ethernet':
+                server_state = ping(server_address, method)
+            elif method == 'LinkStar':
+                with self.radio.lock:
+                    server_state = ping(server_address, method)
+            print server_state
 
             #update db with newly discovered server state
             stmt = '''
@@ -711,4 +722,24 @@ class vms_db(object):
                 self.ppp.kill()
                     
         self.radio.hangup()
+        
+    def check_test_connection(self):
+        stmt = '''
+            SELECT `Recording_Session_State`.`test_connection`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                )
+            LIMIT 1
+        '''
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchone()
+            
+        connection = results['test_connection']
+        return connection
+            
+            
     

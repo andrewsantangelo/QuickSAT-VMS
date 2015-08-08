@@ -18,6 +18,7 @@ import vms_db
 #   https://pypi.python.org/pypi/setuptools
 import mysql.connector
 
+
 class vms_db_ground(object):
     def __init__(self, address, port, cert, username, password, dbname, **kwargs):
         self.lock = threading.RLock()
@@ -79,13 +80,18 @@ class vms_db_ground(object):
         
 
     def open(self):
-        with self.lock:
         
-            if not self.db:
-                self.db = mysql.connector.connect(**self.config)
+        with self.lock:
+            try:
+                if not self.db:
+                    self.db = mysql.connector.connect(**self.config)
               
-            if self.db and not self.cursor:
-                self.cursor = self.db.cursor(dictionary=True)
+                if self.db and not self.cursor:
+                    self.cursor = self.db.cursor(dictionary=True)
+            except:
+                pass
+                #print "can't open ground db"
+                
 
 
     def close(self):
@@ -93,9 +99,11 @@ class vms_db_ground(object):
             
             if self.cursor:
                 self.cursor.close()
+                print 'cursor.close'
 
             if self.db:
                 self.db.close()
+                print 'db.close'
             
       
 
@@ -114,7 +122,6 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            #print "test1"
             self.cursor.execute(stmt)
             self.cursor.execute(stmt_update_last_sync_time)
             self.db.commit()

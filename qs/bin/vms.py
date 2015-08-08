@@ -66,7 +66,7 @@ class vms(object):
             'password': gs_args['password'],
             'cert': vms_cert,
             'dbname': vms_dbname
-         }
+        }
         self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
 
         # Connect to the MCP target
@@ -470,64 +470,78 @@ class vms(object):
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
+    """
+    Most functions that use the radio will need to check the radio status first
+    """        
+            
     def sync_flight_data_object(self):
-        print "flight data object test"
-        cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT', None)
-        try:
-            self.db.sync_selected_db_table('Flight_Data_Object')
-            self.db_ground.sync_selected_db_table('Flight_Data_Object')
-            if cmds:
-                self.db.complete_commands(cmds, True)
-        except:
-            if cmds:
-                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            print "flight data object test"
+            cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT', None)
+            try:
+                self.db.sync_selected_db_table('Flight_Data_Object')
+                self.db_ground.sync_selected_db_table('Flight_Data_Object')
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+            except:
+                if cmds:
+                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_binary(self):
-        print "flight data binary test"
-        cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY', None)
-        try:
-            self.db.sync_selected_db_table('Flight_Data_Binary')
-            self.db_ground.sync_selected_db_table('Flight_Data_Binary')
-            if cmds:
-                self.db.complete_commands(cmds, True)
-        except:
-            if cmds:
-                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            print "flight data binary test"
+            cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY', None)
+            try:
+                self.db.sync_selected_db_table('Flight_Data_Binary')
+                self.db_ground.sync_selected_db_table('Flight_Data_Binary')
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+            except:
+                if cmds:
+                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_flight_data(self):
-        print "flight data test"
-        cmds = self.commands.pop('SYNC_FLIGHT_DATA', None)
-        try:
-            self.db.sync_selected_db_table('Flight_Data')
-            self.db_ground.sync_selected_db_table('Flight_Data')
-            if cmds:
-                self.db.complete_commands(cmds, True)
-        except:
-            if cmds:
-                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            print "flight data test"
+            cmds = self.commands.pop('SYNC_FLIGHT_DATA', None)
+            try:
+                self.db.sync_selected_db_table('Flight_Data')
+                self.db_ground.sync_selected_db_table('Flight_Data')
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+            except:
+                if cmds:
+                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_command_log(self):
-        print "command log test"
-        cmds = self.commands.pop('SYNC_COMMAND_LOG', None)
-        try:
-            self.db.sync_selected_db_table('Command_Log')
-            self.db_ground.sync_selected_db_table('Command_Log')
-            if cmds:
-                self.db.complete_commands(cmds, True)
-        except:
-            if cmds:
-                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            print "command log test"
+            cmds = self.commands.pop('SYNC_COMMAND_LOG', None)
+            try:
+                self.db.sync_selected_db_table('Command_Log')
+                self.db_ground.sync_selected_db_table('Command_Log')
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+            except:
+                if cmds:
+                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self):
-        print "system message test"
-        cmds = self.commands.pop('SYNC_SYSTEM_MESSAGES', None)
-        try:
-            self.db.sync_selected_db_table('System_Messages')
-            self.db_ground.sync_selected_db_table('System_Messages')
-            if cmds:
-                self.db.complete_commands(cmds, True)
-        except:
-            if cmds:
-                self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            print "system message test"
+            cmds = self.commands.pop('SYNC_SYSTEM_MESSAGES', None)
+            try:
+                self.db.sync_selected_db_table('System_Messages')
+                self.db_ground.sync_selected_db_table('System_Messages')
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+            except:
+                if cmds:
+                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
    
