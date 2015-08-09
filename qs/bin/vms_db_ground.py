@@ -33,8 +33,9 @@ class vms_db_ground(object):
             'ssl_ca': cert,
         }
         if not self.config['ssl_ca']:
-            del self.config['ssl_ca']         
-        self.open()
+            del self.config['ssl_ca']    
+        with self.lock:     
+            self.open()
 
     def __del__(self):
         self.close()

@@ -7,6 +7,7 @@ import radio_status
 import subprocess
 import threading
 import string
+import time
 
 # To connect to the QS/VMS database, install with
 #   $ pip install MySQL-python
@@ -24,6 +25,7 @@ def ping(address, method):
         args = ['ping', '-c1', '-I', 'eth0', address]
     elif method == 'LinkStar':
         args = ['ping', '-c1', '-I', 'ppp0', address]
+        args = ['ping', '-c1', '-I', 'ppp0', '8.8.8.8']
     f = open('/dev/null', 'w')
     return (0 == subprocess.call(args, stdout=f))
 
@@ -665,19 +667,20 @@ class vms_db(object):
                 with open('/sys/class/net/eth0/carrier') as f:
                     connected = (1 == int(f.read()))
             elif method == 'LinkStar':
-                print 'service available: {}'.format(status['SERVICE AVAILABLE'])
-                if status['CALL STATE'] == 'TIA_PPP_MDT': 
-                    connected = True
-                elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
-                    (avail, rssi, roaming) = self.radio.is_service_available()
-                    syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
-                    if avail and roaming == '<NO>':
-                        connected = self.call('777')
-                        syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
-                        # If we were able to connect, wait about 10 seconds so we can
-                        # ping immediately
-                        if connected:
-                            time.sleep(10)
+                with self.radio.lock:
+                    print 'service available: {}'.format(status['SERVICE AVAILABLE'])
+                    if status['CALL STATE'] == 'TIA_PPP_MDT': 
+                        connected = True
+                    elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
+                        (avail, rssi, roaming) = self.radio.is_service_available()
+                        syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
+                        if avail and roaming == 'NO':
+                            connected = self.call('777')
+                            syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
+                            # If we were able to connect, wait about 10 seconds so we can
+                            # ping immediately
+                            if connected:
+                                time.sleep(10)
             else:
                 self._log_msg('Unsupported ground connection method: {}'.format(method))
 
@@ -688,7 +691,7 @@ class vms_db(object):
             elif method == 'LinkStar':
                 with self.radio.lock:
                     server_state = ping(server_address, method)
-            print server_state
+            print 'server state = {}'.format(server_state)
 
             #update db with newly discovered server state
             stmt = '''
@@ -707,21 +710,23 @@ class vms_db(object):
                 
              
     def call(self, number):
-        (status, msg) = self.radio.call(number)
-        if status:
-            args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'persist', 'maxfail', '0', 'crtscts', 'local' ]
-            self.ppp = subprocess.Popen(args)
-        else:
-            self._log_msg('Failed to call #{}: {}'.format(number, msg))
+        with self.radio.lock:
+            (status, msg) = self.radio.call(number)
+            if status:
+                args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'persist', 'maxfail', '2', 'crtscts', 'local' ]
+                self.ppp = subprocess.Popen(args)
+            else:
+                self._log_msg('Failed to call #{}: {}'.format(number, msg))
 
-        return status
+            return status
       
     def hangup(self):
-        # pkill pppd would could also work
-        if self.ppp:
-                self.ppp.kill()
+        with self.radio.lock:
+            # pkill pppd would could also work
+            if self.ppp:
+                    self.ppp.kill()
                     
-        self.radio.hangup()
+            self.radio.hangup()
         
     def check_test_connection(self):
         stmt = '''

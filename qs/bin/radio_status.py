@@ -31,9 +31,6 @@ class gsp1720(object):
         self.dtr_pin = 48
         self.serial = serial.Serial(**self.args)
         
-        # Phone option to ignore DTR changes after a call starts. Adds stability.
-        self._command('AT&D0')
-        
         if self.dtr_pin:
             import os.path
             if not os.path.exists('/sys/class/gpio/gpio{}'.format(self.dtr_pin)):
@@ -98,10 +95,11 @@ class gsp1720(object):
 
     def is_service_available(self):
         (status, data, _) = self.get_status()
-        avail = status and (data['RSSI'] >= 1) and (data['SERVICE AVAILABLE'] == 'YES') and (data['ROAMING'] == '<NO>')
+        avail = status and (data['RSSI'] >= 1) and (data['SERVICE AVAILABLE'] == 'YES') and (data['ROAMING'] == 'NO')
         if 'SERVICE AVAILABLE' in data and data['SERVICE AVAILABLE'] == 'DEEP_SLEEP':
             print('DEEP_SLEEP!')
         rssi = -1
+        roaming = 'NO'
         if 'RSSI' in data:
             rssi = data['RSSI']
         if 'ROAMING' in data:
@@ -114,6 +112,8 @@ class gsp1720(object):
             # set the timeout longer to allow time for the connection to be made
             old_timeout = self.serial.timeout
             self.serial.timeout = 60
+            # Phone option to ignore DTR changes after a call starts. Adds stability.
+            self._command('AT&D0')
             self.serial.write(b'ATD#{}\r'.format(number))
 
             # there shouldn't be as many bytes to read in response to this command as there
