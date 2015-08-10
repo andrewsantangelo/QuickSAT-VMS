@@ -25,7 +25,6 @@ def ping(address, method):
         args = ['ping', '-c1', '-I', 'eth0', address]
     elif method == 'LinkStar':
         args = ['ping', '-c1', '-I', 'ppp0', address]
-        args = ['ping', '-c1', '-I', 'ppp0', '8.8.8.8']
     f = open('/dev/null', 'w')
     return (0 == subprocess.call(args, stdout=f))
 
@@ -713,7 +712,7 @@ class vms_db(object):
         with self.radio.lock:
             (status, msg) = self.radio.call(number)
             if status:
-                args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'persist', 'maxfail', '2', 'crtscts', 'local' ]
+                args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'persist', 'maxfail', '1', 'crtscts', 'local' ]
                 self.ppp = subprocess.Popen(args)
             else:
                 self._log_msg('Failed to call #{}: {}'.format(number, msg))
