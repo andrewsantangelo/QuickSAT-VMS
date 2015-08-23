@@ -107,7 +107,6 @@ class vms_db_ground(object):
                 print 'db.close'
             
       
-
     def sync_selected_db_table(self, selected_table_name):
         selected_table_name_quotes = '`{}`'.format(selected_table_name)
         stmt = '''
@@ -127,6 +126,45 @@ class vms_db_ground(object):
             self.cursor.execute(stmt_update_last_sync_time)
             self.db.commit()
 
+        
+    
+    def read_command_log(self):
+    # Returns the appropriate rows of the ground db
+        #print "db_ground read command log"
+        stmt = '''
+            SELECT *
+                FROM `stepSATdb_Flight`.`Command_Log`
+                WHERE `Command_Log`.`command_state`='Pending'
+                    AND `Command_Log`.`read_from_sv`!='1'
+                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    )
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            commands = self.cursor.fetchall()
+        return commands
+        
+
+    def update_ground_command_log(self,ground_commands):
+    # Writes updated rows to the ground db
+        #print "db_ground write command log"
+        if ground_commands:
+            print ground_commands
+            for row in ground_commands:
+                stmt = '''
+                    UPDATE `stepSATdb_Flight`.`Command_Log`
+                        SET `Command_Log`.`pushed_to_ground` = 'TRUE'
+                            WHERE `Command_Log`.`Recording_Sessions_recording_session_id` = ground_commands[row][Recording_Sessions_recording_session_id]
+                            AND `Command_log`.`time_of_command` = ground_commands[row][time_of_command]
+                '''
+                with self.lock:
+                    self.cursor.execute(stmt)
+                    self.db.commit()
+
+    def add_ground_command_log(self, ground_commands):
+        pass
         
         
       

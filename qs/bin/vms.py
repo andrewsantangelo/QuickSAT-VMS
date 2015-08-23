@@ -86,9 +86,9 @@ class vms(object):
         #self.flight_data_thread = periodic_timer.PeriodicTimer(self.periodic_flight_data, self.db.retrieve_flight_data_poll_rate())
         #self.input_dir_thread = periodic_timer.PeriodicTimer(self.monitor_input_dir, self.db.retrieve_command_poll_rate())
 
-        # For now, use the command poll rate to run the "process" function
-        t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_poll_rate())
-        self.threads.append(t)
+        # For now, use the command poll rate to run the "command log monitor" function
+        t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_log_poll_rate())
+        #self.threads.append(t)
         
         # Use a pre-defined radio status poll time for now 
         t = periodic_timer.PeriodicTimer(self.radio_status, 60)
@@ -105,26 +105,27 @@ class vms(object):
         t=periodic_timer.PeriodicTimer(self.sync_flight_data_binary, self.db.retrieve_binary_data_push_rate())
         self.threads.append(t)
         
-        # Command_Log uses command_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_command_log, self.db.retrieve_command_log_push_rate())
+        # Command_Log_ground_to_sv uses command_poll_rate
+        t = periodic_timer.PeriodicTimer(self.sync_command_log_ground_to_sv, self.db.retrieve_command_log_poll_rate())
+        self.threads.append(t)
+        
+        # Command_Log_sv_to_ground uses command_push_rate
+        t = periodic_timer.PeriodicTimer(self.sync_command_log_sv_to_ground, self.db.retrieve_command_log_push_rate())
         self.threads.append(t)
         
         # System_Messages uses command_syslog_push_rate
         t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
         self.threads.append(t)
-        
-
-    def radio_status(self):
-        # Have the VMS DB connection retrieve and update the radio status
-        self.db.get_radio_status()
-
-        # Keep the poll rate constant for now, it shouldn't change
-        return 39        
-
 
     def __del__(self):
         syslog.syslog(syslog.LOG_NOTICE, 'Shutting down')
         syslog.closelog()
+
+    def radio_status(self):
+        # Have the VMS DB connection retrieve and update the radio status
+        self.db.get_radio_status()
+        # Keep the poll rate constant for now, it shouldn't change
+        return 39                
 
     def run(self):
         for t in self.threads:
@@ -196,15 +197,17 @@ class vms(object):
                 self.sync_flight_data_binary()
             elif 'SYNC_FLIGHT_DATA' in self.commands:
                 self.sync_flight_data()
-            elif 'SYNC_COMMAND_LOG' in self.commands:
-                self.sync_command_log()
+            elif 'SYNC_COMMAND_LOG_SV_TO_GROUND' in self.commands:
+                self.sync_command_log_sv_to_ground()
+            elif 'SYNC_COMMAND_LOG_GROUND_TO_SV' in self.commands:
+                self.sync_command_log_ground_to_sv()
             elif 'SYNC_SYSTEM_MESSAGES' in self.commands:
                 self.sync_system_messages()
             else:
                 self.handle_unknown_command()
 
         # return the new poll rate if it has changed
-        return self.db.retrieve_command_poll_rate()
+        return self.db.retrieve_command_log_poll_rate()
 
     def update_mcp(self):
         if 'ADD_VMAPP' in self.commands:
@@ -515,20 +518,6 @@ class vms(object):
             except:
                 if cmds:
                     self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
-    
-    def sync_command_log(self):
-        self.db.get_radio_status()
-        if self.db.check_test_connection():
-            print "command log test"
-            cmds = self.commands.pop('SYNC_COMMAND_LOG', None)
-            try:
-                self.db.sync_selected_db_table('Command_Log')
-                self.db_ground.sync_selected_db_table('Command_Log')
-                if cmds:
-                    self.db.complete_commands(cmds, True)
-            except:
-                if cmds:
-                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self):
         self.db.get_radio_status()
@@ -540,6 +529,45 @@ class vms(object):
                 self.db_ground.sync_selected_db_table('System_Messages')
                 if cmds:
                     self.db.complete_commands(cmds, True)
+            except:
+                if cmds:
+                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+
+
+    def sync_command_log_sv_to_ground(self):
+    #sync from sv to ground
+    # read from sv db
+    # write to ground db
+    # update sv db
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            cmds = self.commands.pop('SYNC_COMMAND_LOG_SV_TO_GROUND', None)
+            try:
+                commands = self.db.read_command_log()
+                self.db_ground.add_ground_command_log(commands) # write to ground db with pushed_to_ground set to true
+                self.db.update_sv_command_log(commands) # rewrite to sv db with pushed_to_ground set to true
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+                print "command log sv to ground test"
+            except:
+                if cmds:
+                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+
+
+    def sync_command_log_ground_to_sv(self):
+    #sync from ground to sv
+    #run pending commands
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            cmds = self.commands.pop('SYNC_COMMAND_LOG_GROUND_TO_SV', None)
+            try:
+                ground_commands = self.db_ground.read_command_log()
+                self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
+                self.db_ground.update_ground_command_log(ground_commands) # rewrite to ground db with read_from_sv set to true
+            
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+                print "command log ground to sv test"
             except:
                 if cmds:
                     self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
