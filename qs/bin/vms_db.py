@@ -531,12 +531,10 @@ class vms_db(object):
 
     def read_command_log(self):
     # Returns the appropriate rows of the sv db
-        #print "db read command log"
         stmt = '''
             SELECT *
                 FROM `stepSATdb_Flight`.`Command_Log`
-                    WHERE `Command_Log`.`command_state`='Pending'
-                    AND `Command_Log`.`pushed_to_ground`!='1'
+                    WHERE `Command_Log`.`pushed_to_ground`!='1'
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions`)
@@ -544,26 +542,37 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
             commands = self.cursor.fetchall()
+            print commands
         return commands
         
     def add_sv_command_log(self, commands):
-        #print "db write command log"
+    # adds row(s) to sv command_log
         if commands:
             for row in commands:
                 stmt = '''
                     INSERT INTO `stepSATdb_Flight`.`Command_Log` (`time_of_command`, `Recording_Sessions_recording_session_id`,`command`,
-                        `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`)  VALUES (ground_commands[row][time], ground_commands[row][`Recording_Session_recording_session_id`],
-                        ground_commands[row][command], ground_commands[row][command_state], ground_commands[row][command_data], ground_commands[row][priority], ground_commands[row][source],
-                        TRUE, TRUE)
+                        `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`)
+                        VALUES (%(time_of_command)s,%(Recording_Sessions_recording_session_id)s,%(command)s,%(command_state)s,%(command_data)s,%(priority)s,%(source)s,1, 1)
+                        ON DUPLICATE KEY UPDATE `Command_Log`.`read_from_sv` = 1 , `Command_Log`.`command_state` = %(command_state)s
                 '''
             with self.lock:
-                self.cursor.execute(stmt)
+                self.cursor.execute(stmt, row)
                 self.db.commit()
 
     def update_sv_command_log(self, commands):
-        pass
+    # updates relevant row(s) in sv command log
+        if commands:
+            for row in commands:
+                stmt = '''
+                    UPDATE `stepSATdb_Flight`.`Command_Log`
+                        SET `Command_Log`.`pushed_to_ground` = 1
+                            WHERE `Command_Log`.`Recording_Sessions_recording_session_id` = %(Recording_Sessions_recording_session_id)s
+                            AND `Command_Log`.`time_of_command` = %(time_of_command)s
+                '''
+                with self.lock:
+                    self.cursor.execute(stmt, row)
+                    self.db.commit()
         
-
 #    Radio monitoring functions
 #
     def get_radio_status(self):

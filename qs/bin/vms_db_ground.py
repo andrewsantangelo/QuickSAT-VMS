@@ -129,8 +129,7 @@ class vms_db_ground(object):
         
     
     def read_command_log(self):
-    # Returns the appropriate rows of the ground db
-        #print "db_ground read command log"
+    # Returns the appropriate row(s) of the ground db
         stmt = '''
             SELECT *
                 FROM `stepSATdb_Flight`.`Command_Log`
@@ -148,23 +147,29 @@ class vms_db_ground(object):
         
 
     def update_ground_command_log(self,ground_commands):
-    # Writes updated rows to the ground db
-        #print "db_ground write command log"
+    # Writes updated row(s)to the ground db command log
         if ground_commands:
-            print ground_commands
             for row in ground_commands:
                 stmt = '''
                     UPDATE `stepSATdb_Flight`.`Command_Log`
-                        SET `Command_Log`.`pushed_to_ground` = 'TRUE'
-                            WHERE `Command_Log`.`Recording_Sessions_recording_session_id` = ground_commands[row][Recording_Sessions_recording_session_id]
-                            AND `Command_log`.`time_of_command` = ground_commands[row][time_of_command]
+                        SET `Command_Log`.`read_from_sv` = 1
+                            WHERE `Command_Log`.`Recording_Sessions_recording_session_id` = %(Recording_Sessions_recording_session_id)s
+                            AND `Command_log`.`time_of_command` = %(time_of_command)s
                 '''
                 with self.lock:
-                    self.cursor.execute(stmt)
+                    self.cursor.execute(stmt,row)
                     self.db.commit()
 
     def add_ground_command_log(self, ground_commands):
-        pass
-        
-        
-      
+    # adds new row(s) to ground db
+        if ground_commands:
+            for row in ground_commands:
+                stmt = '''
+                    INSERT INTO `stepSATdb_Flight`.`Command_Log` (`time_of_command`, `Recording_Sessions_recording_session_id`,`command`,
+                        `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`) VALUES (%(time_of_command)s,%(Recording_Sessions_recording_session_id)s,%(command)s,%(command_state)s,%(command_data)s,%(priority)s,%(source)s,%(read_from_sv)s,1)
+                        ON DUPLICATE KEY UPDATE `Command_Log`.`pushed_to_ground` = 1 , `Command_Log`.`command_state` = %(command_state)s
+                '''
+                print stmt
+                with self.lock:
+                    self.cursor.execute(stmt,row)
+                    self.db.commit()

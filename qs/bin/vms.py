@@ -542,16 +542,16 @@ class vms(object):
         self.db.get_radio_status()
         if self.db.check_test_connection():
             cmds = self.commands.pop('SYNC_COMMAND_LOG_SV_TO_GROUND', None)
-            try:
-                commands = self.db.read_command_log()
-                self.db_ground.add_ground_command_log(commands) # write to ground db with pushed_to_ground set to true
-                self.db.update_sv_command_log(commands) # rewrite to sv db with pushed_to_ground set to true
-                if cmds:
-                    self.db.complete_commands(cmds, True)
-                print "command log sv to ground test"
-            except:
-                if cmds:
-                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            #try:
+            commands = self.db.read_command_log()
+            self.db_ground.add_ground_command_log(commands) # write to ground db with pushed_to_ground set to true
+            self.db.update_sv_command_log(commands) # rewrite to sv db with pushed_to_ground set to true
+            if cmds:
+                self.db.complete_commands(cmds, True)
+            print "command log sv to ground test"
+            #except:
+            #    if cmds:
+            #        self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
 
     def sync_command_log_ground_to_sv(self):
@@ -560,16 +560,16 @@ class vms(object):
         self.db.get_radio_status()
         if self.db.check_test_connection():
             cmds = self.commands.pop('SYNC_COMMAND_LOG_GROUND_TO_SV', None)
-            try:
-                ground_commands = self.db_ground.read_command_log()
-                self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
-                self.db_ground.update_ground_command_log(ground_commands) # rewrite to ground db with read_from_sv set to true
-            
-                if cmds:
-                    self.db.complete_commands(cmds, True)
-                print "command log ground to sv test"
-            except:
-                if cmds:
-                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            #try:
+            ground_commands = self.db_ground.read_command_log()
+            self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
+            self.db_ground.update_ground_command_log(ground_commands) # rewrite to ground db with read_from_sv set to true
+    
+            if cmds:
+                self.db.complete_commands(cmds, True)
+            print "command log ground to sv test"
+            #except:
+            #    if cmds:
+             #       self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
    
