@@ -100,11 +100,11 @@ class vms_db_ground(object):
             
             if self.cursor:
                 self.cursor.close()
-                print 'cursor.close'
+                #print 'cursor.close'
 
             if self.db:
                 self.db.close()
-                print 'db.close'
+                #print 'db.close'
             
       
     def sync_selected_db_table(self, selected_table_name):
@@ -169,7 +169,7 @@ class vms_db_ground(object):
                         `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`) VALUES (%(time_of_command)s,%(Recording_Sessions_recording_session_id)s,%(command)s,%(command_state)s,%(command_data)s,%(priority)s,%(source)s,%(read_from_sv)s,1)
                         ON DUPLICATE KEY UPDATE `Command_Log`.`pushed_to_ground` = 1 , `Command_Log`.`command_state` = %(command_state)s
                 '''
-                print stmt
+                #print stmt
                 with self.lock:
                     self.cursor.execute(stmt,row)
                     self.db.commit()

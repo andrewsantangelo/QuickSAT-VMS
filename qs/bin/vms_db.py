@@ -542,7 +542,7 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
             commands = self.cursor.fetchall()
-            print commands
+            #print commands
         return commands
         
     def add_sv_command_log(self, commands):
@@ -692,7 +692,7 @@ class vms_db(object):
                server_address = results['test_server']
             else:
                server_address = results['test_server']           
-        print method
+        #print method
 
         if not connected:
             syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
@@ -702,7 +702,7 @@ class vms_db(object):
                     connected = (1 == int(f.read()))
             elif method == 'LinkStar':
                 with self.radio.lock:
-                    print 'service available: {}'.format(status['SERVICE AVAILABLE'])
+                    #print 'service available: {}'.format(status['SERVICE AVAILABLE'])
                     if status['CALL STATE'] == 'TIA_PPP_MDT': 
                         connected = True
                     elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
@@ -719,13 +719,13 @@ class vms_db(object):
                 self._log_msg('Unsupported ground connection method: {}'.format(method))
 
         if connected:
-            print 'pinging'
+            #print 'pinging'
             if method == 'Ethernet':
                 server_state = ping(server_address, method)
             elif method == 'LinkStar':
                 with self.radio.lock:
                     server_state = ping(server_address, method)
-            print 'server state = {}'.format(server_state)
+            #print 'server state = {}'.format(server_state)
 
             #update db with newly discovered server state
             stmt = '''
