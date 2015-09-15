@@ -480,7 +480,7 @@ class vms(object):
     def sync_flight_data_object(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            #print "flight data object test"
+            print "flight data object test"
             cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT', None)
             try:
                 self.db.sync_selected_db_table('Flight_Data_Object')
@@ -494,7 +494,7 @@ class vms(object):
     def sync_flight_data_binary(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            #print "flight data binary test"
+            print "flight data binary test"
             cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY', None)
             try:
                 self.db.sync_selected_db_table('Flight_Data_Binary')
@@ -508,7 +508,7 @@ class vms(object):
     def sync_flight_data(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            #print "flight data test"
+            print "flight data test"
             cmds = self.commands.pop('SYNC_FLIGHT_DATA', None)
             try:
                 self.db.sync_selected_db_table('Flight_Data')
@@ -522,7 +522,7 @@ class vms(object):
     def sync_system_messages(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            #print "system message test"
+            print "system message test"
             cmds = self.commands.pop('SYNC_SYSTEM_MESSAGES', None)
             try:
                 self.db.sync_selected_db_table('System_Messages')

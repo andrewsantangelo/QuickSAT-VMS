@@ -90,7 +90,8 @@ class vms_db_ground(object):
                 if self.db and not self.cursor:
                     self.cursor = self.db.cursor(dictionary=True)
             except:
-                pass
+                raise
+                #pass
                 #print "can't open ground db"
                 
 
