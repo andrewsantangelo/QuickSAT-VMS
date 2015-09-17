@@ -8,6 +8,10 @@ import subprocess
 import threading
 import string
 import time
+import os
+import os.path
+import pwd
+import grp
 
 # To connect to the QS/VMS database, install with
 #   $ pip install MySQL-python
@@ -528,6 +532,28 @@ class vms_db(object):
         '''.format(string.lower(selected_table_name), new_event_key)
         with self.lock:
             self.cursor.execute(stmt_write_pointer)
+            
+    def sync_recording_sessions(self):
+        if not os.path.exists('/opt/qs/tmp'):
+            os.mkdir('/opt/qs/tmp')
+        
+        uid = pwd.getpwnam("mysql").pw_uid
+        gid = grp.getgrnam("mysql").gr_gid
+        
+        if not os.stat('/opt/qs/tmp').st_uid == uid:
+            os.chown('/opt/qs/tmp', uid, gid)
+        
+        
+        if os.path.exists('/opt/qs/tmp/recording_sessions.csv'):
+            os.remove('/opt/qs/tmp/recording_sessions.csv')
+        
+        stmt = '''
+            SELECT * FROM `stepSATdb_Flight`.`Recording_Sessions` INTO OUTFILE '/opt/qs/tmp/recording_sessions.csv' 
+               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+            '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            print self.cursor
 
     def read_command_log(self):
     # Returns the appropriate rows of the sv db

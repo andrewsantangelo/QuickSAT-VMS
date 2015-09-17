@@ -7,6 +7,10 @@ import sys
 import subprocess
 import threading
 import vms_db
+import os
+import os.path
+import pwd
+import grp
 
 # To connect to the QS/VMS database, install with
 #   $ pip install MySQL-python
@@ -127,6 +131,15 @@ class vms_db_ground(object):
             self.cursor.execute(stmt_update_last_sync_time)
             self.db.commit()
 
+    def sync_recording_sessions(self):
+        stmt = '''
+            LOAD DATA LOCAL INFILE '/opt/qs/tmp/recording_sessions.csv' 
+                INTO TABLE `stepSATdb_Flight`.`Recording_Sessions` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
+                ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            self.db.commit()
         
     
     def read_command_log(self):

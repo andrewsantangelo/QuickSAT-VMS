@@ -117,6 +117,10 @@ class vms(object):
         t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
         self.threads.append(t)
 
+        # Recording_Sessions uses command_syslog_push_rate
+        t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, self.db.retrieve_command_syslog_push_rate())
+        self.threads.append(t)
+
     def __del__(self):
         syslog.syslog(syslog.LOG_NOTICE, 'Shutting down')
         syslog.closelog()
@@ -203,6 +207,8 @@ class vms(object):
                 self.sync_command_log_ground_to_sv()
             elif 'SYNC_SYSTEM_MESSAGES' in self.commands:
                 self.sync_system_messages()
+            elif 'SYNC_RECORDING_SESSIONS' in self.commands:
+                self.sync_recording_sessions()
             else:
                 self.handle_unknown_command()
 
@@ -532,6 +538,17 @@ class vms(object):
             except:
                 if cmds:
                     self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+                    
+    def sync_recording_sessions(self):
+        self.db.get_radio_status()
+        if self.db.check_test_connection():
+            print "recording sessions test"
+            cmds = self.commands.pop('SYNC_RECORDING_SESSIONS', None)
+            self.db.sync_recording_sessions()
+            self.db_ground.sync_recording_sessions()
+            if cmds:
+                self.db.complete_commands(cmds, True)
+
 
 
     def sync_command_log_sv_to_ground(self):
