@@ -85,7 +85,6 @@ class vms_db_ground(object):
         
 
     def open(self):
-        
         with self.lock:
             try:
                 if not self.db:
@@ -93,12 +92,9 @@ class vms_db_ground(object):
               
                 if self.db and not self.cursor:
                     self.cursor = self.db.cursor(dictionary=True)
-            except:
+            except: 
                 raise
                 #pass
-                #print "can't open ground db"
-                
-
 
     def close(self):
         with self.lock:

@@ -59,6 +59,7 @@ class vms(object):
         self.db = vms_db.vms_db(**self.args['vms'])
         
         gs_args = self.db.get_db_ground_args()
+
         self.args['vms_ground'] = {
             'address': gs_args['server'],
             'port': vms_port,
@@ -67,10 +68,11 @@ class vms(object):
             'cert': vms_cert,
             'dbname': vms_dbname
         }
-        self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
+        #self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
+        self.db_ground = None
 
         # Connect to the MCP target
-        self.mcp = mcp_target.mcp_target(**self.args['mcp'])
+        #self.mcp = mcp_target.mcp_target(**self.args['mcp'])
 
         self.commands = {}
 
@@ -120,6 +122,7 @@ class vms(object):
         # Recording_Sessions uses command_syslog_push_rate
         t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, self.db.retrieve_command_syslog_push_rate())
         self.threads.append(t)
+        
 
     def __del__(self):
         syslog.syslog(syslog.LOG_NOTICE, 'Shutting down')
@@ -479,6 +482,29 @@ class vms(object):
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
+            
+    def check_db_ground_connection(self):
+        print 'check_db_ground_connection'
+        gs_args = self.db.get_db_ground_args()
+        self.args['vms_ground'] = {
+            'address': gs_args['server'],
+            'port': self.args['vms_ground']['port'],
+            'username': gs_args['username'],
+            'password': gs_args['password'],
+            'cert': self.args['vms_ground']['cert'],
+            'dbname': self.args['vms_ground']['dbname']
+        }
+        print self.args['vms_ground']
+        if self.db_ground:
+            return True
+        else:
+            try:
+                self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
+                print "connected to ground db"
+            except:
+                raise
+            return self.db_ground
+
     """
     Most functions that use the radio will need to check the radio status first
     """        
@@ -486,68 +512,74 @@ class vms(object):
     def sync_flight_data_object(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            print "flight data object test"
-            cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT', None)
-            try:
-                self.db.sync_selected_db_table('Flight_Data_Object')
-                self.db_ground.sync_selected_db_table('Flight_Data_Object')
-                if cmds:
-                    self.db.complete_commands(cmds, True)
-            except:
-                if cmds:
-                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if self.check_db_ground_connection():
+                print "flight data object test"
+                cmds = self.commands.pop('SYNC_FLIGHT_DATA_OBJECT', None)
+                try:
+                    self.db.sync_selected_db_table('Flight_Data_Object')
+                    self.db_ground.sync_selected_db_table('Flight_Data_Object')
+                    if cmds:
+                        self.db.complete_commands(cmds, True)
+                except:
+                    if cmds:
+                        self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_binary(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            print "flight data binary test"
-            cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY', None)
-            try:
-                self.db.sync_selected_db_table('Flight_Data_Binary')
-                self.db_ground.sync_selected_db_table('Flight_Data_Binary')
-                if cmds:
-                    self.db.complete_commands(cmds, True)
-            except:
-                if cmds:
-                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if self.check_db_ground_connection():
+                print "flight data binary test"
+                cmds = self.commands.pop('SYNC_FLIGHT_DATA_BINARY', None)
+                try:
+                    self.db.sync_selected_db_table('Flight_Data_Binary')
+                    self.db_ground.sync_selected_db_table('Flight_Data_Binary')
+                    if cmds:
+                        self.db.complete_commands(cmds, True)
+                except:
+                    if cmds:
+                        self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_flight_data(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            print "flight data test"
-            cmds = self.commands.pop('SYNC_FLIGHT_DATA', None)
-            try:
-                self.db.sync_selected_db_table('Flight_Data')
-                self.db_ground.sync_selected_db_table('Flight_Data')
-                if cmds:
-                    self.db.complete_commands(cmds, True)
-            except:
-                if cmds:
-                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if self.check_db_ground_connection():
+                print "flight data test"
+                cmds = self.commands.pop('SYNC_FLIGHT_DATA', None)
+                try:
+                    self.db.sync_selected_db_table('Flight_Data')
+                    self.db_ground.sync_selected_db_table('Flight_Data')
+                    if cmds:
+                        self.db.complete_commands(cmds, True)
+                except:
+                    if cmds:
+                        self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+
 
     def sync_system_messages(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            print "system message test"
-            cmds = self.commands.pop('SYNC_SYSTEM_MESSAGES', None)
-            try:
-                self.db.sync_selected_db_table('System_Messages')
-                self.db_ground.sync_selected_db_table('System_Messages')
-                if cmds:
-                    self.db.complete_commands(cmds, True)
-            except:
-                if cmds:
-                    self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if self.check_db_ground_connection():
+                print "system message test"
+                cmds = self.commands.pop('SYNC_SYSTEM_MESSAGES', None)
+                try:
+                    self.db.sync_selected_db_table('System_Messages')
+                    self.db_ground.sync_selected_db_table('System_Messages')
+                    if cmds:
+                        self.db.complete_commands(cmds, True)
+                except:
+                    if cmds:
+                        self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
                     
     def sync_recording_sessions(self):
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            print "recording sessions test"
-            cmds = self.commands.pop('SYNC_RECORDING_SESSIONS', None)
-            self.db.sync_recording_sessions()
-            self.db_ground.sync_recording_sessions()
-            if cmds:
-                self.db.complete_commands(cmds, True)
+            if self.check_db_ground_connection():
+                print "recording sessions test"
+                cmds = self.commands.pop('SYNC_RECORDING_SESSIONS', None)
+                self.db.sync_recording_sessions()
+                self.db_ground.sync_recording_sessions()
+                if cmds:
+                    self.db.complete_commands(cmds, True)
 
 
 
@@ -558,17 +590,18 @@ class vms(object):
     # update sv db
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            cmds = self.commands.pop('SYNC_COMMAND_LOG_SV_TO_GROUND', None)
-            #try:
-            commands = self.db.read_command_log()
-            self.db_ground.add_ground_command_log(commands) # write to ground db with pushed_to_ground set to true
-            self.db.update_sv_command_log(commands) # rewrite to sv db with pushed_to_ground set to true
-            if cmds:
-                self.db.complete_commands(cmds, True)
-            print "command log sv to ground test"
-            #except:
-            #    if cmds:
-            #        self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+            if self.check_db_ground_connection():
+                cmds = self.commands.pop('SYNC_COMMAND_LOG_SV_TO_GROUND', None)
+                #try:
+                commands = self.db.read_command_log()
+                self.db_ground.add_ground_command_log(commands) # write to ground db with pushed_to_ground set to true
+                self.db.update_sv_command_log(commands) # rewrite to sv db with pushed_to_ground set to true
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+                print "command log sv to ground test"
+                #except:
+                #    if cmds:
+                #        self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
 
     def sync_command_log_ground_to_sv(self):
@@ -576,17 +609,18 @@ class vms(object):
     #run pending commands
         self.db.get_radio_status()
         if self.db.check_test_connection():
-            cmds = self.commands.pop('SYNC_COMMAND_LOG_GROUND_TO_SV', None)
-            #try:
-            ground_commands = self.db_ground.read_command_log()
-            self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
-            self.db_ground.update_ground_command_log(ground_commands) # rewrite to ground db with read_from_sv set to true
+            if self.check_db_ground_connection():
+                cmds = self.commands.pop('SYNC_COMMAND_LOG_GROUND_TO_SV', None)
+                #try:
+                ground_commands = self.db_ground.read_command_log()
+                self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
+                self.db_ground.update_ground_command_log(ground_commands) # rewrite to ground db with read_from_sv set to true
     
-            if cmds:
-                self.db.complete_commands(cmds, True)
-            print "command log ground to sv test"
-            #except:
-            #    if cmds:
-             #       self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
+                if cmds:
+                    self.db.complete_commands(cmds, True)
+                print "command log ground to sv test"
+                #except:
+                #    if cmds:
+                 #       self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
    
