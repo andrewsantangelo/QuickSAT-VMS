@@ -758,7 +758,7 @@ class vms_db(object):
                     self._log_msg('Unsupported ground connection method: {}'.format(method))
 
             if connected:
-                #print 'pinging'
+                print 'pinging'
                 if method == 'Ethernet':
                     server_state = ping(server_address, method)
                 elif method == 'LinkStar':
