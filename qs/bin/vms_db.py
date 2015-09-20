@@ -602,66 +602,6 @@ class vms_db(object):
 #    Radio monitoring functions
 #
     def get_radio_status(self):
-        status = {
-            'N': 'error',
-            'W': 'error',
-            'TIME': 'error',
-            'ERR': 'error',
-            'CALL TYPE': '',
-            'CALL DURATION': '',
-            'NUMBER': '',
-            'PROVIDER' : '',
-            'SERVICE AVAILABLE': '',
-            'SERVICE MODE': '',
-            'CALL STATE' : '',
-            'REGISTRATION' : '',
-            'RSSI' : '0',
-            'ROAMING' : 'NO',
-            'GATEWAY' : '0',
-            'recording_session_id' : '0',
-            'esn': '11111111',
-            'time_recorded':''
-        }         
-        status.update(self.radio.get_status()[1])         
-        status.update(self.radio.get_location()[1])         
-        
-        stmt = '''
-            SELECT `recording_session_id` 
-                FROM `stepSATdb_Flight`.`Recording_Sessions`
-                ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
-        '''
-        
-        with self.lock:
-            self.cursor.execute(stmt)
-            row_recording_session = self.cursor.fetchone()        
-            status.update(row_recording_session)         
-        
-            stmt = '''
-                SELECT `esn` 
-                    FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information` LIMIT 1
-             '''
-            self.cursor.execute(stmt)
-            row_esn = self.cursor.fetchone()
-            status.update(row_esn)  
-            
-            self.cursor.execute('''
-               INSERT INTO `stepSATdb_Flight`.`LinkStar_Duplex_State` (`esn`, `call_type`, 
-                    `call_duration`, `call_number`, `provider`, `service_available`, 
-                    `service_mode`, `call_state`, `registration`, `rssi`, 
-                    `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`,`time_recorded`) VALUES ( 
-                     %(esn)s, %(CALL TYPE)s, 
-                    %(CALL DURATION)s, %(NUMBER)s, %(PROVIDER)s, %(SERVICE AVAILABLE)s, 
-                    %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
-                    %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
-                    %(N)s, %(W)s, %(ERR)s, NOW() )
-                            ''', status)   
-            self.db.commit()              
-        self.connect_to_ground(status)
-            
-        
-
-    def connect_to_ground(self, status):
-        print "connect_to_ground entered"
         stmt = '''
             SELECT `Recording_Session_State`.`sync_to_ground`
                 FROM `stepSATdb_Flight`.`Recording_Session_State`
@@ -676,109 +616,183 @@ class vms_db(object):
         sync_to_ground = results['sync_to_ground']
     
         if sync_to_ground == 1:
-            # look up server address and connect method (eth or linkstar), and current connection state
-    
+            status = {
+                'N': 'error',
+                'W': 'error',
+                'TIME': 'error',
+                'ERR': 'error',
+                'CALL TYPE': '',
+                'CALL DURATION': '',
+                'NUMBER': '',
+                'PROVIDER' : '',
+                'SERVICE AVAILABLE': '',
+                'SERVICE MODE': '',
+                'CALL STATE' : '',
+                'REGISTRATION' : '',
+                'RSSI' : '0',
+                'ROAMING' : 'NO',
+                'GATEWAY' : '0',
+                'recording_session_id' : '0',
+                'esn': '11111111',
+                'time_recorded':''
+            }         
+            status.update(self.radio.get_status()[1])         
+            status.update(self.radio.get_location()[1])         
+        
             stmt = '''
-                SELECT `Recording_Session_State`.`test_connection`,
-                       `Recording_Session_State`.`connection_type`,
-                       `Recording_Session_State`.`selected_server`
-                    FROM `stepSATdb_Flight`.`Recording_Session_State`
+                SELECT `recording_session_id` 
+                    FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
+            '''
+        
+            with self.lock:
+                self.cursor.execute(stmt)
+                row_recording_session = self.cursor.fetchone()        
+                status.update(row_recording_session)         
+        
+                stmt = '''
+                    SELECT `esn` 
+                        FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information` LIMIT 1
+                 '''
+                self.cursor.execute(stmt)
+                row_esn = self.cursor.fetchone()
+                status.update(row_esn)  
+            
+                self.cursor.execute('''
+                   INSERT INTO `stepSATdb_Flight`.`LinkStar_Duplex_State` (`esn`, `call_type`, 
+                        `call_duration`, `call_number`, `provider`, `service_available`, 
+                        `service_mode`, `call_state`, `registration`, `rssi`, 
+                        `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`,`time_recorded`) VALUES ( 
+                         %(esn)s, %(CALL TYPE)s, 
+                        %(CALL DURATION)s, %(NUMBER)s, %(PROVIDER)s, %(SERVICE AVAILABLE)s, 
+                        %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
+                        %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
+                        %(N)s, %(W)s, %(ERR)s, NOW() )
+                                ''', status)   
+                self.db.commit()              
+            self.connect_to_ground(status)
+        else:
+            stmt = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET test_connection=0
                     WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
                     )
-                LIMIT 1
             '''
-
             with self.lock:
-                self.cursor.execute(stmt)
-                results = self.cursor.fetchone()
-                connected = results['test_connection']
-                method = results['connection_type']
-                selected_server = results['selected_server']
-                if selected_server == 'PRIMARY':
-                   stmt = '''
-                    SELECT `QS_Servers`.`primary_server`
-                           FROM `stepSATdb_Flight`.`QS_Servers`
-                       LIMIT 1
-                   '''    
-                elif selected_server == 'ALTERNATE':
-                   stmt = '''
-                       SELECT `QS_Servers`.`alternative_server`
-                           FROM `stepSATdb_Flight`.`QS_Servers`
-                       LIMIT 1
-                   '''
-                elif selected_server == 'TEST':
-                   stmt = '''
-                       SELECT `QS_Servers`.`test_server`
-                           FROM `stepSATdb_Flight`.`QS_Servers`
-                       LIMIT 1
-                   '''
-                else:
-                   stmt = '''
-                       SELECT `QS_Servers`.`test_server`
-                           FROM `stepSATdb_Flight`.`QS_Servers`
-                       LIMIT 1
-                   '''
-                self.cursor.execute(stmt)
-                results = self.cursor.fetchone()
-    
-                if selected_server == 'PRIMARY':
-                   server_address = results['primary_server']
-                elif selected_server == 'ALTERNATE':
-                   server_address = results['alternative_server']
-                elif selected_server == 'TEST':
-                   server_address = results['test_server']
-                else:
-                   server_address = results['test_server']           
-            #print method
+                self.cursor.execute()
+                self.db.commit()
+        
+            
+        
 
-            if not connected:
-                syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
-                if method == 'Ethernet':
-                    connected = False
-                    with open('/sys/class/net/eth0/carrier') as f:
-                        connected = (1 == int(f.read()))
-                elif method == 'LinkStar':
-                    with self.radio.lock:
-                        #print 'service available: {}'.format(status['SERVICE AVAILABLE'])
-                        if status['CALL STATE'] == 'TIA_PPP_MDT': 
-                            connected = True
-                        elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
-                            (avail, rssi, roaming) = self.radio.is_service_available()
-                            syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
-                            if avail and roaming == 'NO':
-                                connected = self.call('777')
-                                syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
-                                # If we were able to connect, wait about 10 seconds so we can
-                                # ping immediately
-                                if connected:
-                                    time.sleep(10)
-                else:
-                    self._log_msg('Unsupported ground connection method: {}'.format(method))
+    def connect_to_ground(self, status):
+        print "connect_to_ground entered"
 
-            if connected:
-                print 'pinging'
-                if method == 'Ethernet':
+        # look up server address and connect method (eth or linkstar), and current connection state
+
+        stmt = '''
+            SELECT `Recording_Session_State`.`test_connection`,
+                   `Recording_Session_State`.`connection_type`,
+                   `Recording_Session_State`.`selected_server`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                )
+            LIMIT 1
+        '''
+
+        with self.lock:
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchone()
+            connected = results['test_connection']
+            method = results['connection_type']
+            selected_server = results['selected_server']
+            if selected_server == 'PRIMARY':
+               stmt = '''
+                SELECT `QS_Servers`.`primary_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''    
+            elif selected_server == 'ALTERNATE':
+               stmt = '''
+                   SELECT `QS_Servers`.`alternative_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            elif selected_server == 'TEST':
+               stmt = '''
+                   SELECT `QS_Servers`.`test_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            else:
+               stmt = '''
+                   SELECT `QS_Servers`.`test_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchone()
+
+            if selected_server == 'PRIMARY':
+               server_address = results['primary_server']
+            elif selected_server == 'ALTERNATE':
+               server_address = results['alternative_server']
+            elif selected_server == 'TEST':
+               server_address = results['test_server']
+            else:
+               server_address = results['test_server']           
+        #print method
+
+        if not connected:
+            syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
+            if method == 'Ethernet':
+                connected = False
+                with open('/sys/class/net/eth0/carrier') as f:
+                    connected = (1 == int(f.read()))
+            elif method == 'LinkStar':
+                with self.radio.lock:
+                    #print 'service available: {}'.format(status['SERVICE AVAILABLE'])
+                    if status['CALL STATE'] == 'TIA_PPP_MDT': 
+                        connected = True
+                    elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
+                        (avail, rssi, roaming) = self.radio.is_service_available()
+                        syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
+                        if avail and roaming == 'NO':
+                            connected = self.call('777')
+                            syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
+                            # If we were able to connect, wait about 10 seconds so we can
+                            # ping immediately
+                            if connected:
+                                time.sleep(10)
+            else:
+                self._log_msg('Unsupported ground connection method: {}'.format(method))
+
+        if connected:
+            print 'pinging'
+            if method == 'Ethernet':
+                server_state = ping(server_address, method)
+            elif method == 'LinkStar':
+                with self.radio.lock:
                     server_state = ping(server_address, method)
-                elif method == 'LinkStar':
-                    with self.radio.lock:
-                        server_state = ping(server_address, method)
-                #print 'server state = {}'.format(server_state)
+            #print 'server state = {}'.format(server_state)
 
-                #update db with newly discovered ground connection state
-                stmt = '''
-                    UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                        SET test_connection=%s
-                        WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                            SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                                FROM `stepSATdb_Flight`.`Recording_Sessions`
-                        )
-                '''
-                with self.lock:
-                    self.cursor.execute(stmt, (server_state,))
-                    self.db.commit()
-             
+            #update db with newly discovered ground connection state
+            stmt = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET test_connection=%s
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    )
+            '''
+            with self.lock:
+                self.cursor.execute(stmt, (server_state,))
+                self.db.commit()
+         
     def call(self, number):
         with self.radio.lock:
             (status, msg) = self.radio.call(number)
