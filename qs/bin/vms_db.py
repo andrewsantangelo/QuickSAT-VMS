@@ -615,77 +615,75 @@ class vms_db(object):
             results = self.cursor.fetchone()
         sync_to_ground = results['sync_to_ground']
     
-        if sync_to_ground == 1:
-            status = {
-                'N': 'error',
-                'W': 'error',
-                'TIME': 'error',
-                'ERR': 'error',
-                'CALL TYPE': '',
-                'CALL DURATION': '',
-                'NUMBER': '',
-                'PROVIDER' : '',
-                'SERVICE AVAILABLE': '',
-                'SERVICE MODE': '',
-                'CALL STATE' : '',
-                'REGISTRATION' : '',
-                'RSSI' : '0',
-                'ROAMING' : 'NO',
-                'GATEWAY' : '0',
-                'recording_session_id' : '0',
-                'esn': '11111111',
-                'time_recorded':''
-            }         
-            status.update(self.radio.get_status()[1])         
-            status.update(self.radio.get_location()[1])         
-        
+        status = {
+            'N': 'error',
+            'W': 'error',
+            'TIME': 'error',
+            'ERR': 'error',
+            'CALL TYPE': '',
+            'CALL DURATION': '',
+            'NUMBER': '',
+            'PROVIDER' : '',
+            'SERVICE AVAILABLE': '',
+            'SERVICE MODE': '',
+            'CALL STATE' : '',
+            'REGISTRATION' : '',
+            'RSSI' : '0',
+            'ROAMING' : 'NO',
+            'GATEWAY' : '0',
+            'recording_session_id' : '0',
+            'esn': '11111111',
+            'time_recorded':''
+        }       
+          
+        status.update(self.radio.get_status()[1])         
+        status.update(self.radio.get_location()[1])         
+    
+        stmt = '''
+            SELECT `recording_session_id` 
+                FROM `stepSATdb_Flight`.`Recording_Sessions`
+                ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
+        '''
+    
+        with self.lock:
+            self.cursor.execute(stmt)
+            row_recording_session = self.cursor.fetchone()        
+            status.update(row_recording_session)         
+    
             stmt = '''
-                SELECT `recording_session_id` 
-                    FROM `stepSATdb_Flight`.`Recording_Sessions`
-                    ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
-            '''
+                SELECT `esn` 
+                    FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information` LIMIT 1
+             '''
+            self.cursor.execute(stmt)
+            row_esn = self.cursor.fetchone()
+            status.update(row_esn)  
         
-            with self.lock:
-                self.cursor.execute(stmt)
-                row_recording_session = self.cursor.fetchone()        
-                status.update(row_recording_session)         
-        
-                stmt = '''
-                    SELECT `esn` 
-                        FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information` LIMIT 1
-                 '''
-                self.cursor.execute(stmt)
-                row_esn = self.cursor.fetchone()
-                status.update(row_esn)  
+            self.cursor.execute('''
+               INSERT INTO `stepSATdb_Flight`.`LinkStar_Duplex_State` (`esn`, `call_type`, 
+                    `call_duration`, `call_number`, `provider`, `service_available`, 
+                    `service_mode`, `call_state`, `registration`, `rssi`, 
+                    `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`,`time_recorded`) VALUES ( 
+                     %(esn)s, %(CALL TYPE)s, 
+                    %(CALL DURATION)s, %(NUMBER)s, %(PROVIDER)s, %(SERVICE AVAILABLE)s, 
+                    %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
+                    %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
+                    %(N)s, %(W)s, %(ERR)s, NOW() )
+                            ''', status)   
+            self.db.commit()            
             
-                self.cursor.execute('''
-                   INSERT INTO `stepSATdb_Flight`.`LinkStar_Duplex_State` (`esn`, `call_type`, 
-                        `call_duration`, `call_number`, `provider`, `service_available`, 
-                        `service_mode`, `call_state`, `registration`, `rssi`, 
-                        `roaming`, `gateway`, `Recording_Sessions_recording_session_id`, `time_of_day`, `latitude`, `longitude`, `position_error`,`time_recorded`) VALUES ( 
-                         %(esn)s, %(CALL TYPE)s, 
-                        %(CALL DURATION)s, %(NUMBER)s, %(PROVIDER)s, %(SERVICE AVAILABLE)s, 
-                        %(SERVICE MODE)s, %(CALL STATE)s, %(REGISTRATION)s, %(RSSI)s, 
-                        %(ROAMING)s, %(GATEWAY)s, %(recording_session_id)s, %(TIME)s, 
-                        %(N)s, %(W)s, %(ERR)s, NOW() )
-                                ''', status)   
-                self.db.commit()              
-            self.connect_to_ground(status)
-        else:
-            stmt = '''
-                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                    SET test_connection=0
-                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions`
-                    )
-            '''
-            with self.lock:
+            if sync_to_ground == 1:      
+                self.connect_to_ground(status)
+            else:
+                stmt = '''
+                    UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                        SET test_connection=0
+                        WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                            SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                                FROM `stepSATdb_Flight`.`Recording_Sessions`
+                        )
+                '''
                 self.cursor.execute()
                 self.db.commit()
-        
-            
-        
 
     def connect_to_ground(self, status):
         print "connect_to_ground entered"
