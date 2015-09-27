@@ -12,6 +12,18 @@ import vms_db
 import mcp_target
 import periodic_timer
 import vms_db_ground
+import radio_status
+import threading
+import subprocess
+
+# utility function to test connection to server
+def ping(address, method):
+    if method == 'Ethernet':
+        args = ['ping', '-c1', '-I', 'eth0', address]
+    elif method == 'LinkStar':
+        args = ['ping', '-c1', '-I', 'ppp0', address]
+    f = open('/dev/null', 'w')
+    return (0 == subprocess.call(args, stdout=f))
 
 def write_json_data(data, filename):
     f = open(filename, 'w')
@@ -54,6 +66,11 @@ class vms(object):
                 'ip_range': domu_ip_range
             }
         }
+        self.lock = threading.RLock()
+
+        # Create radio
+        self.radio = radio_status.gsp1720()
+        self.ppp = None
 
         # Connect to the QS/VMS DB
         self.db = vms_db.vms_db(**self.args['vms'])
@@ -129,15 +146,177 @@ class vms(object):
         syslog.closelog()
 
     def radio_status(self):
-        # Have the VMS DB connection retrieve and update the radio status
-        self.db.get_radio_status()
+        #retrieve radio status
+        self.get_radio_status()
         # Keep the poll rate constant for now, it shouldn't change
         return 39                
+        
+#    Radio monitoring functions
+#
+    def get_radio_status(self):
+        # check whether the sync_to_ground flag is set 
+        sync_to_ground = self.db.is_sync_to_ground_set()
+        
+        status = {
+            'N': 'error',
+            'W': 'error',
+            'TIME': 'error',
+            'ERR': 'error',
+            'CALL TYPE': '',
+            'CALL DURATION': '',
+            'NUMBER': '',
+            'PROVIDER' : '',
+            'SERVICE AVAILABLE': '',
+            'SERVICE MODE': '',
+            'CALL STATE' : '',
+            'REGISTRATION' : '',
+            'RSSI' : '0',
+            'ROAMING' : 'NO',
+            'GATEWAY' : '0',
+            'recording_session_id' : '0',
+            'esn': '11111111',
+            'time_recorded':''
+        }         
+        status.update(self.radio.get_status()[1])         
+        status.update(self.radio.get_location()[1]) 
+
+        status['recording_session_id'] = self.db.get_recording_session_id()
+        status['esn'] = self.db.get_esn()
+        
+        self.db.record_status_in_db(status)
+        
+        if sync_to_ground == 1:    
+            self.connect_to_ground(status)
+        # if sync_to_ground is false, test_connection cannot be true    
+        else:
+            self.db.set_test_connection('0')
+            
+                
+    def connect_to_ground(self, status):
+        print "connect_to_ground entered"
+
+        # look up server address and connect method (eth or linkstar), and current connection state
+        stmt = '''
+            SELECT `Recording_Session_State`.`test_connection`,
+                   `Recording_Session_State`.`connection_type`,
+                   `Recording_Session_State`.`selected_server`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                )
+            LIMIT 1
+        '''
+
+        with self.lock:
+            self.db.cursor.execute(stmt)
+            results = self.db.cursor.fetchone()
+            connected = results['test_connection']
+            method = results['connection_type']
+            selected_server = results['selected_server']
+            if selected_server == 'PRIMARY':
+               stmt = '''
+                SELECT `QS_Servers`.`primary_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''    
+            elif selected_server == 'ALTERNATE':
+               stmt = '''
+                   SELECT `QS_Servers`.`alternative_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            elif selected_server == 'TEST':
+               stmt = '''
+                   SELECT `QS_Servers`.`test_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            else:
+               stmt = '''
+                   SELECT `QS_Servers`.`test_server`
+                       FROM `stepSATdb_Flight`.`QS_Servers`
+                   LIMIT 1
+               '''
+            self.db.cursor.execute(stmt)
+            results = self.db.cursor.fetchone()
+
+            if selected_server == 'PRIMARY':
+               server_address = results['primary_server']
+            elif selected_server == 'ALTERNATE':
+               server_address = results['alternative_server']
+            elif selected_server == 'TEST':
+               server_address = results['test_server']
+            else:
+               server_address = results['test_server']           
+        #print method
+
+        if not connected:
+            syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
+            if method == 'Ethernet':
+                connected = False
+                with open('/sys/class/net/eth0/carrier') as f:
+                    connected = (1 == int(f.read()))
+            elif method == 'LinkStar':
+                with self.radio.lock:
+                    #print 'service available: {}'.format(status['SERVICE AVAILABLE'])
+                    if status['CALL STATE'] == 'TIA_PPP_MDT': 
+                        connected = True
+                    elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
+                        (avail, rssi, roaming) = self.radio.is_service_available()
+                        syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
+                        if avail and roaming == 'NO':
+                            connected = self.call('777')
+                            syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
+                            # If we were able to connect, wait about 10 seconds so we can
+                            # ping immediately
+                            if connected:
+                                time.sleep(10)
+            else:
+                self._log_msg('Unsupported ground connection method: {}'.format(method))
+
+        if connected:
+            print 'pinging'
+            if method == 'Ethernet':
+                server_state = ping(server_address, method)
+            elif method == 'LinkStar':
+                with self.radio.lock:
+                    server_state = ping(server_address, method)
+            #print 'server state = {}'.format(server_state)
+
+            #update db with newly discovered ground connection state
+            stmt = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET test_connection=%s
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    )
+            '''
+            with self.lock:
+                self.db.cursor.execute(stmt, (server_state,))
+                self.db.db.commit()                
+            
+    def call(self, number):
+        with self.radio.lock:
+            (status, msg) = self.radio.call(number)
+            if status:
+                args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'persist', 'maxfail', '1', 'crtscts', 'local' ]
+                self.ppp = subprocess.Popen(args)
+            else:
+                self._log_msg('Failed to call #{}: {}'.format(number, msg))
+            return status
+      
+    def hangup(self):
+        with self.radio.lock:
+            # pkill pppd would could also work
+            if self.ppp:
+                    self.ppp.kill()
+            self.radio.hangup()                
 
     def run(self):
         for t in self.threads:
             t.start()
-
         try:
             while True:
                 #print(time.asctime())
@@ -464,7 +643,6 @@ class vms(object):
                 for c in self.commands.pop(k):
                     msg = 'Unknown command {}:{}'.format(k, c)
                     self.db.complete_commands(c, False, msg)
-
     
     def call(self):
         cmds = self.commands.pop('CALL')
@@ -510,7 +688,7 @@ class vms(object):
     """        
             
     def sync_flight_data_object(self):
-        self.db.get_radio_status()
+        self.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data object test"
@@ -525,7 +703,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_binary(self):
-        self.db.get_radio_status()
+        self.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data binary test"
@@ -540,7 +718,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_flight_data(self):
-        self.db.get_radio_status()
+        self.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data test"
@@ -555,7 +733,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self):
-        self.db.get_radio_status()
+        self.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "system message test"
@@ -570,7 +748,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
                     
     def sync_recording_sessions(self):
-        self.db.get_radio_status()
+        self.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "recording sessions test"
@@ -585,7 +763,7 @@ class vms(object):
     # read from sv db
     # write to ground db
     # update sv db
-        self.db.get_radio_status()
+        self.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 cmds = self.commands.pop('SYNC_COMMAND_LOG_SV_TO_GROUND', None)
@@ -603,7 +781,7 @@ class vms(object):
     def sync_command_log_ground_to_sv(self):
     #sync from ground to sv
     #run pending commands
-        self.db.get_radio_status()
+        self.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 cmds = self.commands.pop('SYNC_COMMAND_LOG_GROUND_TO_SV', None)
