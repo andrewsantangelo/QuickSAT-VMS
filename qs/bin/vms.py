@@ -85,7 +85,7 @@ class vms(object):
             'cert': vms_cert,
             'dbname': vms_dbname
         }
-        #self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
+
         self.db_ground = None
 
         # Connect to the MCP target
@@ -156,6 +156,7 @@ class vms(object):
     def get_radio_status(self):
         # check whether the sync_to_ground flag is set 
         sync_to_ground = self.db.is_sync_to_ground_set()
+        print "get_radio_status() entered"
         
         status = {
             'N': 'error',
@@ -193,7 +194,14 @@ class vms(object):
             
                 
     def connect_to_ground(self, status):
-        print "connect_to_ground entered"
+    # Checks latest state of connection to ground server. If it thinks it's connected, it
+    # tries to ping. If it doesn't think it's connected to the ground server, it 
+    # attempts to connect and then tries to ping.
+    #
+    # If it cannot ping the user-selected ground server, it will try the other configured
+    # ground servers.
+    
+        print "connect_to_ground() entered"
 
         # look up server address and connect method (eth or linkstar), and current connection state
         stmt = '''
@@ -248,9 +256,9 @@ class vms(object):
             elif selected_server == 'TEST':
                server_address = results['test_server']
             else:
-               server_address = results['test_server']           
-        #print method
+               server_address = results['test_server']
 
+        # If connection is not available, try to make one
         if not connected:
             syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
             if method == 'Ethernet':
@@ -273,18 +281,75 @@ class vms(object):
                             if connected:
                                 time.sleep(10)
             else:
-                self._log_msg('Unsupported ground connection method: {}'.format(method))
-
+                print ""
+                #self._log_msg('Unsupported ground connection method: {}'.format(method))
+                
+        # if connection was available at last check, ping to make sure        
         if connected:
-            print 'pinging'
-            if method == 'Ethernet':
-                server_state = ping(server_address, method)
-            elif method == 'LinkStar':
-                with self.radio.lock:
-                    server_state = ping(server_address, method)
-            #print 'server state = {}'.format(server_state)
+            server_list = ['PRIMARY','ALTERNATE','TEST','NONE']
+            server_list.remove(selected_server)
+            server_list.insert(0, selected_server)
+            server_address = ''
+            #print results
+            #print server_list
 
-            #update db with newly discovered ground connection state
+            # Try chosen server and then if it doesn't ping back, try another
+            for server_to_try in server_list:
+                if server_to_try == 'PRIMARY':
+                    stmt = '''
+                        SELECT `QS_Servers`.`primary_server`
+                            FROM `stepSATdb_Flight`.`QS_Servers`
+                        LIMIT 1
+                    '''    
+                    with self.lock:
+                        self.db.cursor.execute(stmt)
+                        db_results = self.db.cursor.fetchone()
+                    server_address = db_results['primary_server']
+                elif server_to_try == 'ALTERNATE':
+                    stmt = '''
+                        SELECT `QS_Servers`.`alternative_server`
+                            FROM `stepSATdb_Flight`.`QS_Servers`
+                        LIMIT 1
+                    '''    
+                    with self.lock:
+                        self.db.cursor.execute(stmt)
+                        db_results = self.db.cursor.fetchone()
+                    server_address = db_results['alternative_server']
+                elif server_to_try == 'TEST':
+                    stmt = '''
+                        SELECT `QS_Servers`.`test_server`
+                            FROM `stepSATdb_Flight`.`QS_Servers`
+                        LIMIT 1
+                    '''    
+                    with self.lock:
+                        self.db.cursor.execute(stmt)
+                        db_results = self.db.cursor.fetchone()
+                    server_address = db_results['test_server']
+                elif server_to_try == 'NONE':
+                    stmt = '''
+                        SELECT `QS_Servers`.`test_server`
+                            FROM `stepSATdb_Flight`.`QS_Servers`
+                        LIMIT 1
+                    '''    
+                    with self.lock:
+                        self.db.cursor.execute(stmt)
+                        db_results = self.db.cursor.fetchone()
+                    server_address = db_results['test_server']
+                
+                print "Pinging {} at address {}".format(server_to_try, server_address)
+                if method == 'Ethernet':
+                    try:
+                        server_state = ping(server_address, method)
+                    except:
+                        pass
+                elif method == 'LinkStar':
+                    with self.radio.lock:
+                        server_state = ping(server_address, method)
+                
+                if server_state == True:
+                    break
+
+            # Update db with new ground connection state and active server
             stmt = '''
                 UPDATE `stepSATdb_Flight`.`Recording_Session_State`
                     SET test_connection=%s
@@ -295,16 +360,30 @@ class vms(object):
             '''
             with self.lock:
                 self.db.cursor.execute(stmt, (server_state,))
-                self.db.db.commit()                
+                self.db.db.commit()                  
+            stmt = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`   
+                    SET active_ground_server=%s
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    )
+            '''
+            with self.lock:
+                self.db.cursor.execute(stmt, (server_to_try,))
+                self.db.db.commit()        
             
-    def call(self, number):
+            
+    def call(self,number):
+        print "calling {}".format(number)
         with self.radio.lock:
             (status, msg) = self.radio.call(number)
             if status:
                 args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'persist', 'maxfail', '1', 'crtscts', 'local' ]
                 self.ppp = subprocess.Popen(args)
             else:
-                self._log_msg('Failed to call #{}: {}'.format(number, msg))
+                print "call failed"
+                #self._log_msg('Failed to call #{}: {}'.format(number, msg))
             return status
       
     def hangup(self):
@@ -642,27 +721,10 @@ class vms(object):
                 # This is not a custom command, just log it as an unknown error
                 for c in self.commands.pop(k):
                     msg = 'Unknown command {}:{}'.format(k, c)
-                    self.db.complete_commands(c, False, msg)
-    
-    def call(self):
-        cmds = self.commands.pop('CALL')
-        try:
-            self.db.call('777')
-            self.db.complete_commands(cmds, True)
-        except:
-            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
-
-    def hangup(self):
-        cmds = self.commands.pop('HANGUP')
-        try:
-            self.db.hangup()
-            self.db.complete_commands(cmds, True)
-        except:
-            self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
-            
+                    self.db.complete_commands(c, False, msg)           
             
     def check_db_ground_connection(self):
-        print 'check_db_ground_connection'
+        #print 'entered check_db_ground_connection()'
         gs_args = self.db.get_db_ground_args()
         self.args['vms_ground'] = {
             'address': gs_args['server'],
@@ -672,7 +734,7 @@ class vms(object):
             'cert': self.args['vms_ground']['cert'],
             'dbname': self.args['vms_ground']['dbname']
         }
-        print self.args['vms_ground']
+        # print self.args['vms_ground']
         if self.db_ground:
             return True
         else:

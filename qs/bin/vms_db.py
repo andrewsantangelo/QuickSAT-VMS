@@ -414,26 +414,40 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
             all_servers = self.cursor.fetchone()
+            
+        stmt = '''
+            SELECT `Recording_Session_State`.`active_ground_server`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                ) LIMIT 1
+        '''
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            active_server = self.cursor.fetchone()
+            print "Checking db connection at active ground server:{}".format(active_server['active_ground_server'])
 
-        if all_servers['selected_server'] == 'TEST':
+        if active_server['active_ground_server'] == 'TEST':
             selected_server = {
                 'server': all_servers['test_server'],
                 'username': all_servers['test_username'],
                 'password': all_servers['test_password']
             }
-        elif all_servers['selected_server'] == 'PRIMARY':
+        elif active_server['active_ground_server'] == 'PRIMARY':
             selected_server = {
                 'server': all_servers['primary_server'],
                 'username': all_servers['primary_username'],
                 'password': all_servers['primary_password']
             } 
-        elif all_servers['selected_server'] == 'ALTERNATE':
+        elif active_server['active_ground_server'] == 'ALTERNATE':
             selected_server = {
                 'server': all_servers['alternate_server'],
                 'username': all_servers['alternate_username'],
                 'password': all_servers['alternate_password']
             } 
-        elif all_servers['selected_server'] == 'NONE':
+        elif active_server['active_ground_server'] == 'NONE':
             selected_server = {
                  'server': '',
                  'username': '',
@@ -441,8 +455,9 @@ class vms_db(object):
             } 
         else:
              return None
-        #print selected_server
+             
         return selected_server            
+        
         
     def is_sync_to_ground_set(self):
         stmt = '''
@@ -456,6 +471,7 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
             results = self.cursor.fetchone()
+            print results
         sync_to_ground = results['sync_to_ground']
         return sync_to_ground
     
@@ -506,7 +522,7 @@ class vms_db(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions`)
         '''.format(flag)
         with self.lock:
-            self.cursor.execute()
+            self.cursor.execute(stmt)
             self.db.commit()           
     
     def sync_selected_db_table(self, selected_table_name):
