@@ -23,6 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('--mcp-password', default='root', help='password for the system that MCP is installed on')
     parser.add_argument('--no-mcp-password', action='store_true', help='specify that a password is not required for the MCP system (overrides --mcp-username)')
     parser.add_argument('--domu-ip-range', default='', help='the IP address range to use for the VMs (DHCP used when this option is blank)')
+    parser.add_argument('--flight-stream-flag', default='DISABLED', help='When True it tells VMS to stream data from stepSATdb_FlightAV between the vehicle and ground station')
 
     # Parse the command line arguments
     args = parser.parse_args()

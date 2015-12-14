@@ -12,6 +12,8 @@ import vms_db
 import mcp_target
 import periodic_timer
 import vms_db_ground
+import ls_comm_flight_stream
+
 
 def write_json_data(data, filename):
     f = open(filename, 'w')
@@ -33,7 +35,7 @@ def cmd_find_apps(cmds, apps):
     return (cmds, found_apps)
 
 class vms(object):
-    def __init__(self, mcp_address, mcp_port, mcp_username, mcp_password, vms_address, vms_port, vms_cert, vms_username, vms_password, vms_dbname, domu_ip_range, **kwargs):
+    def __init__(self, mcp_address, mcp_port, mcp_username, mcp_password, vms_address, vms_port, vms_cert, vms_username, vms_password, vms_dbname, domu_ip_range, flight-stream-flag, **kwargs):
         # Save the arguments
         self.args = {
             'vms': {
@@ -52,6 +54,9 @@ class vms(object):
             },
             'domu': {
                 'ip_range': domu_ip_range
+            },
+            'fsdata': {
+                'flight-stream': flight-stream-flag
             }
         }
 
@@ -70,7 +75,21 @@ class vms(object):
         }
         #self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
         self.db_ground = None
+ 
 
+        self.args['lsav'] = {
+            'address': vms_address,
+            'port': vms_port,
+            'username': vms_username,
+            'password': vms_password,
+            'cert': vms_cert,
+            'dbname': 'stepSATdb_FlightAV'
+        }
+        
+        # Define ls_comm_flight_stream
+        if flight-stream-flag == 'ENABLED':
+            self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
+        
         # Connect to the MCP target
         #self.mcp = mcp_target.mcp_target(**self.args['mcp'])
 
