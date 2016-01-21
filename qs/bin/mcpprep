@@ -1,0 +1,273 @@
+#!/usr/bin/env python
+
+import os
+import os.path
+import signal
+import subprocess
+import sys
+import sqlite3
+import re
+import shutil
+import tarfile # because shutil does not have unpack_archive in python2
+import stat
+import tempfile
+import argparse
+import itertools
+
+# REQUIRED PERMISSIONS:
+#
+# This script requires read access to the following irectories:
+#    /etc/mcp/ (for mct and image files)
+#    /etc/xen/ (for mcp*.cfg files)
+#    /opt/mcp/ (location that BBB places new mct.db)
+#    /opt/mcp/images -> /mnt/opt/mcp/images (domU applications)
+# which might require write access to the /etc/xen directory.
+# Additionally it needs to be able to run the "service" command.
+#
+# Rather than setting this script as setuid root, it is better that the
+# resources used by this script have thier permissions set to give the "admin"
+# group access to the resources:
+#    $ sudo chown root:admin /etc/mcp
+#    $ sudo chmod 775 /etc/mcp
+#    $ sudo chown root:admin /etc/xen
+#    $ sudo chmod 775 /etc/xen
+#    $ sudo chown root:admin /opt/mcp
+#    $ sudo chmod 775 /opt/mcp
+#    $ sudo chown root:admin /mnt/opt/mcp/images
+#    $ sudo chmod 775 /mnt/opt/mcp/images
+#
+# By default the "admin" group should already have permission to run the
+# "service" command
+
+def move_file(src, dest):
+    # on windows this will fail if the file already exists, so handle the
+    # exception delete the destination file and try the move again), this way
+    # the move happens as atomically as possible on most platforms.
+    try:
+        shutil.move(src, dest)
+    except:
+        os.remove(dest)
+        shutil.move(src, dest)
+
+class mct_pkg(object):
+    def __init__(self, MCP_CONFIG_DIR = '/etc/mcp', XEN_CONFIG_DIR = '/etc/xen', tarball = None, mct = None):
+        # Configuration constants to make it easier to simulate the MCP/Xen environment
+        self.MCP_CONFIG_DIR = MCP_CONFIG_DIR
+        self.XEN_CONFIG_DIR = XEN_CONFIG_DIR
+
+        self.tarballobj = tarball
+        self.tarball = None
+        self.pkg_list = None
+
+        self.mctobj = mct
+        self.db = None
+
+        self.unpack_dir = None
+
+    def __del__(self):
+        if self.tarballobj:
+            self.tarballobj.close()
+
+        if self.db:
+            self.db.close()
+
+        if self.unpack_dir:
+            shutil.rmtree(self.unpack_dir)
+
+    def open(self):
+        self._unpack_config()
+        self._open_db()
+
+    def _open_db(self):
+        if self.unpack_dir:
+            # Open the MCT that was unpacked
+            temp_mct = os.path.join(self.unpack_dir, 'mct.db')
+        else:
+            # Open the new MCT file that was specified
+            temp_mct = os.path.join(self.mct_path)
+        self.db = sqlite3.connect(temp_mct)
+        self.db.row_factory = sqlite3.Row
+
+    def _unpack_config(self):
+        if self.tarballobj:
+            # Create a temp directory to unpack the tarball into
+            self.unpack_dir = tempfile.mkdtemp()
+
+            # shutil.unpack_archive() is able to discover the archive type and
+            # handle it, but that is only python3.2 or later, for now we will
+            # assume that the package is in a gzip tarball.
+            self.tarball = tarfile.open(fileobj=self.tarballobj, mode='r:gz')
+
+            # Get a list of file names, so we can know what files were in the package
+            self.pkg_list = [ t.name for t in self.tarball.getmembers() if t.isreg() ]
+
+            # Only extract the mct.db file to the tar directory, everything else
+            # will be unpacked directly to the MCP file area later.
+            self.tarball.extract('mct.db', self.unpack_dir)
+            self.mct_path = os.path.join(self.unpack_dir, 'mct.db')
+        else:
+            # If this is running in "mct" mode, just close the file since the
+            # MCT needs to be closed before it can be opened with the sqlite3
+            # package
+            self.mct_path = os.path.abspath(self.mctobj.name)
+            self.mctobj.close()
+
+    def create_domain_configs(self):
+        c = self.db.cursor()
+        c.execute('SELECT * FROM partitionTable')
+        doms = dict()
+        for row in c:
+            doms[row['id']] = dict(zip(row.keys(), row))
+
+        # Get the interface, disk and PCI dev configs for the doms
+        for k in doms.keys():
+            # vif
+            vif = list()
+            c.execute('SELECT * FROM ifacePartitionView WHERE partition == {}'.format(k))
+            for row in c:
+                vif.append('bridge=br{}'.format(row['id']))
+                if row['ip']:
+                    vif.append('ip={}'.format(row['ip']))
+                if row['mac']:
+                    vif.append('mac={}'.format(row['mac']))
+                if row['rate']:
+                    vif.append('rate={}'.format(row['rate']))
+            if len(vif):
+                doms[k]['vif'] = vif
+
+            # disk
+            disk = list()
+            c.execute('SELECT * FROM diskPartitionView WHERE partition == {}'.format(k))
+            for row in c:
+                disk.append('\'phy:{},{},{}\''.format(row['path'], row['vdev'], row['access']))
+            if len(disk):
+                doms[k]['disk'] = disk
+
+            # pci
+            pci = list()
+            c.execute('SELECT * FROM pciPartitionView WHERE partition == {}'.format(k))
+            for row in c:
+                # The PCI device address is domain:bus:dev:func.  If
+                # 'function' is not configured it will be replaced with
+                # '*' to indicate that all functions on this PCI device
+                # are assigned to the domain.
+                if row['function']:
+                    pci.append('{}:{}:{}:{}'.format(row['domain'], row['bus'], row['device'], row['function']))
+                else:
+                    pci.append('{}:{}:{}:*'.format(row['domain'], row['bus'], row['device']))
+            if len(pci):
+                doms[k]['pci'] = pci
+
+        # Now create the domain configurations
+        for row in doms.values():
+            conf_file = os.path.join(self.XEN_CONFIG_DIR, 'mcp{}.cfg'.format(row['name']))
+            f = open(conf_file, 'w+')
+            f.write('name = "{}"\n'.format(row['name']))
+            f.write('kernel = "{}"\n'.format(row['kernel']))
+            f.write('memory = {}\n'.format(row['memory']))
+            if row['ramdisk']:
+                f.write('ramdisk = "{}"\n'.format(row['ramdisk']))
+            '''
+            For now, these rows aren't used in the SHARC demo, but rather
+            standard configuration values are used
+
+            if len(row['vif']):
+                f.write('vif = [ {} ]\n'.format(', '.join(row['vif'])))
+            if len(row['pci']):
+                f.write('pci = [ {} ]\n'.format(', '.join(row['pci'])))
+            '''
+            if len(row['disk']):
+                f.write('disk = [ {} ]\n'.format(', '.join(row['disk'])))
+
+            # Write some standard values that should be used by all demo domUs
+            f.write('vcpus = 2\nserial="pty"\nvif = [\'bridge=br0\']\n')
+
+            if row['extra']:
+                f.write('extra = "{}"\n'.format(row['extra']))
+
+            f.close()
+
+    def install_files(self, reload_mcp = False, overwrite = False):
+        if self.pkg_list:
+            # The MCT file must be handled separately
+            file_list = [ f for f in self.pkg_list if f != 'mct.db' ]
+            dir_list = list(set([ os.path.join('files', os.path.dirname(f)) for f in file_list ]))
+
+            # make sure that all of the directories that need to exist, exist.
+            for d in dir_list:
+                dest = os.path.join(self.MCP_CONFIG_DIR, d)
+                if not os.path.isdir(dest):
+                    os.mkdir(dest)
+
+            # move every file that was in the package to the MCP file storage
+            # directory.  If overwrite is false, don't overwrite existing files.
+            mcp_file_dir = os.path.join(self.MCP_CONFIG_DIR, 'files')
+            for f in self.pkg_list:
+                dest = os.path.join(mcp_file_dir, f)
+                src = os.path.join(self.unpack_dir, f)
+                if (not os.path.isfile(dest)) or overwrite:
+                    os.tarball.extract(f, mcp_file_dir)
+
+        # Now copy the new MCT file over to the MCT_CONFIG_DIR/ directory
+        # (if it isn't already there)
+        mct_dest = os.path.join(self.MCP_CONFIG_DIR, 'mct.db')
+        if self.mct_path != mct_dest:
+            move_file(self.mct_path, mct_dest)
+
+        if reload_mcp:
+            # See if MCP is running, 'start-stop-daemon --status' returns the following values:
+            #   0 = program is running
+            #   1 = program is not running and the pid file exists
+            #   3 = program is not running
+            #   4 = unable to determine status
+            mcp_status = subprocess.call(['/usr/sbin/service', 'mcp', 'status'])
+            if mcp_status == 0:
+                subprocess.check_call(['/usr/sbin/service', 'mcp', 'reload'])
+            else:
+                subprocess.check_call(['/usr/sbin/service', 'mcp', 'start'])
+
+# For the "fake Xen" environment only the following steps need to be
+# performed (we can assume that the /etc/mcp directory exists):
+#   1. extract package to temp location
+#   2. read the new MCT, and create domain configuration files
+#   3. copy the new MCT (and any other provided files) to the /etc/mcp directory
+#
+# TODO:
+#   - validate that the files specified in a domain configuration exist?
+if __name__ == '__main__':
+    # Usage:
+    #   $ mcpprep <options> [file name]
+    # where the file name is the name of the MCT update tarball
+    # command line arguments:
+    #   -h --help   : print help information
+    #   -           : use STDIN to accept tarball rather than a file
+    #   -f --force  : force overwriting of files/images that already exist
+    #   -m --mcp    : MCP directory (/etc/mcp by default)
+    #   -x --xen    : Xen directory (/etc/xen by default)
+    #   -r --reload : Cause MCP to reload the MCT
+    parser = argparse.ArgumentParser(description='Update files used by MCP')
+
+    parser.add_argument('--force', action='store_true', help='indicate that the MCT update tarball file should be received through stdin')
+    parser.add_argument('--mcp', default='/etc/mcp', help='location of the MCP configuration directory')
+    parser.add_argument('--xen', default='/etc/xen', help='location of the Xen configuration directory')
+    parser.add_argument('--reload', action='store_true', help='reload MCP after the MCT update has been performed')
+    parser.add_argument('--mode', default='tarball', choices=['tarball', 'mct'], help='indicate if a tarball or just the MCT is provided by target path')
+
+    # filetype arguments understand the '-' argument to use STDIN rather than
+    # a file
+    parser.add_argument('mctfile', type=argparse.FileType('r'), help='the MCT update tarball file location')
+
+    # For testing override the default MCT and XEN directories
+    #parser.set_defaults(mcp='/cygdrive/c/workspace/ARLX/DARPA/DARPA_svn/trunk/SW/etc/mcp', xen='/cygdrive/c/workspace/ARLX/DARPA/DARPA_svn/trunk/SW/etc/xen')
+
+    # Parse the command line arguments
+    args = parser.parse_args()
+
+    if args.mode == 'tarball':
+        config = mct_pkg(args.mcp, args.xen, tarball=args.mctfile)
+    else:
+        config = mct_pkg(args.mcp, args.xen, mct=args.mctfile)
+    config.open()
+    config.create_domain_configs()
+    config.install_files(args.reload, args.force)
+
