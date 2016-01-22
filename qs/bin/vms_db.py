@@ -670,10 +670,11 @@ class vms_db(object):
                     %(N)s, %(W)s, %(ERR)s, NOW() )
                             ''', status)   
             self.db.commit()            
-            
             if sync_to_ground == 1:      
                 self.connect_to_ground(status)
             else:
+                
+                #print "adfwfr"
                 stmt = '''
                     UPDATE `stepSATdb_Flight`.`Recording_Session_State`
                         SET test_connection=0
@@ -682,7 +683,7 @@ class vms_db(object):
                                 FROM `stepSATdb_Flight`.`Recording_Sessions`
                         )
                 '''
-                self.cursor.execute()
+                self.cursor.execute(stmt)
                 self.db.commit()
 
     def connect_to_ground(self, status):
@@ -745,6 +746,7 @@ class vms_db(object):
                server_address = results['test_server']           
         #print method
 
+        #print connected
         if not connected:
             syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
             if method == 'Ethernet':

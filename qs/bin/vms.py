@@ -35,7 +35,7 @@ def cmd_find_apps(cmds, apps):
     return (cmds, found_apps)
 
 class vms(object):
-    def __init__(self, mcp_address, mcp_port, mcp_username, mcp_password, vms_address, vms_port, vms_cert, vms_username, vms_password, vms_dbname, domu_ip_range, flight-stream-flag, **kwargs):
+    def __init__(self, mcp_address, mcp_port, mcp_username, mcp_password, vms_address, vms_port, vms_cert, vms_username, vms_password, vms_dbname, domu_ip_range, flight_stream_flag, **kwargs):
         # Save the arguments
         self.args = {
             'vms': {
@@ -56,7 +56,7 @@ class vms(object):
                 'ip_range': domu_ip_range
             },
             'fsdata': {
-                'flight-stream': flight-stream-flag
+                'flight-stream': flight_stream_flag
             }
         }
 
@@ -87,7 +87,7 @@ class vms(object):
         }
         
         # Define ls_comm_flight_stream
-        if flight-stream-flag == 'ENABLED':
+        if flight_stream_flag == 'ENABLED':
             self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
         
         # Connect to the MCP target
@@ -106,6 +106,7 @@ class vms(object):
         #self.cmd_log_thread = periodic_timer.PeriodicTimer(self.periodic_command_log, self.db.retrieve_cmd_log_poll_rate())
         #self.flight_data_thread = periodic_timer.PeriodicTimer(self.periodic_flight_data, self.db.retrieve_flight_data_poll_rate())
         #self.input_dir_thread = periodic_timer.PeriodicTimer(self.monitor_input_dir, self.db.retrieve_command_poll_rate())
+
 
         # For now, use the command poll rate to run the "command log monitor" function
         t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_log_poll_rate())

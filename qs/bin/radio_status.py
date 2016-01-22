@@ -86,14 +86,17 @@ class gsp1720(object):
         return (status, result, raw)
 
     def get_status(self):
+        #print "entering get_status()"
         with self.lock:
             return self._command('AT$QCSTATUS')
 
     def get_location(self):
+        #print "entering get_location()"
         with self.lock:
-            return self._command('AT$QCPLS=1')
+            return self._command('AT$QCPLS=0')
 
     def is_service_available(self):
+        print "entering is_service_available()"
         (status, data, _) = self.get_status()
         avail = status and (data['RSSI'] >= 1) and (data['SERVICE AVAILABLE'] == 'YES') and (data['ROAMING'] == 'NO')
         if 'SERVICE AVAILABLE' in data and data['SERVICE AVAILABLE'] == 'DEEP_SLEEP':
@@ -107,6 +110,7 @@ class gsp1720(object):
         return (avail, rssi, roaming)
         
     def call(self, number):
+        print "entering call()"
         with self.lock:
             self.serial.flush()
             # set the timeout longer to allow time for the connection to be made
