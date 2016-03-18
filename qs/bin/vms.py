@@ -13,6 +13,7 @@ import mcp_target
 import periodic_timer
 import vms_db_ground
 import ls_comm_flight_stream
+import linkstar
 
 
 def write_json_data(data, filename):
@@ -59,7 +60,7 @@ class vms(object):
                 'flight-stream': flight_stream_flag
             }
         }
-
+        self.linkstar = linkstar.linkstar(**self.args['vms'])
         # Connect to the QS/VMS DB
         self.db = vms_db.vms_db(**self.args['vms'])
         
@@ -150,7 +151,7 @@ class vms(object):
 
     def radio_status(self):
         # Have the VMS DB connection retrieve and update the radio status
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         # Keep the poll rate constant for now, it shouldn't change
         return 39                
 
@@ -489,7 +490,7 @@ class vms(object):
     def call(self):
         cmds = self.commands.pop('CALL')
         try:
-            self.db.call('777')
+            self.linkstar.call('777')
             self.db.complete_commands(cmds, True)
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
@@ -497,7 +498,7 @@ class vms(object):
     def hangup(self):
         cmds = self.commands.pop('HANGUP')
         try:
-            self.db.hangup()
+            self.linkstar.hangup()
             self.db.complete_commands(cmds, True)
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
@@ -530,7 +531,7 @@ class vms(object):
     """        
             
     def sync_flight_data_object(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data object test"
@@ -545,7 +546,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_binary(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data binary test"
@@ -560,7 +561,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_flight_data(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data test"
@@ -575,7 +576,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "system message test"
@@ -590,7 +591,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
                     
     def sync_recording_sessions(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "recording sessions test"
@@ -605,7 +606,7 @@ class vms(object):
     # read from sv db
     # write to ground db
     # update sv db
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 cmds = self.commands.pop('SYNC_COMMAND_LOG_SV_TO_GROUND', None)
@@ -623,7 +624,7 @@ class vms(object):
     def sync_command_log_ground_to_sv(self):
     #sync from ground to sv
     #run pending commands
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 cmds = self.commands.pop('SYNC_COMMAND_LOG_GROUND_TO_SV', None)
@@ -639,4 +640,20 @@ class vms(object):
                 #    if cmds:
                  #       self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
-   
+    def check_test_connection(self):
+        stmt = '''
+            SELECT `Recording_Session_State`.`test_connection`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                )
+            LIMIT 1
+        '''
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchone()
+            
+        connection = results['test_connection']
+        return connection
