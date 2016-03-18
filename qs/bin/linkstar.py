@@ -274,6 +274,7 @@ class linkstar(object):
                         (avail, rssi, roaming) = self.radio.is_service_available()
                         syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
                         if avail and roaming == 'NO':
+                            syslog.syslog(syslog.LOG_DEBUG, 'attempting to dial 777'.format(connected))
                             connected = self.call('777')
                             syslog.syslog(syslog.LOG_DEBUG, 'call result = {}'.format(connected))
                             # If we were able to connect, wait about 10 seconds so we can
@@ -306,6 +307,8 @@ class linkstar(object):
                 self.db.commit()
          
     def call(self, number):
+        print "in linkstar.call()"
+        syslog.syslog(syslog.LOG_DEBUG, 'in linkstar.call()')
         with self.radio.lock:
             (status, msg) = self.radio.call(number)
             if status:

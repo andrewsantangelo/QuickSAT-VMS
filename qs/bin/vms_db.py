@@ -40,7 +40,7 @@ class vms_db(object):
         if not self.config['ssl_ca']:
             del self.config['ssl_ca']         
         self.open()
-        self.radio = radio_status.gsp1720()
+        #self.radio = radio_status.gsp1720()
         self.ppp = None
         
 
