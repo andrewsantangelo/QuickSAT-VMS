@@ -116,34 +116,34 @@ class vms(object):
         
         # Use a pre-defined radio status poll time for now 
         t = periodic_timer.PeriodicTimer(self.radio_status, 60)
-        #self.threads.append(t)
+        self.threads.append(t)
         
         # Flight_Data and Flight_Data_Object use data_download_push_rate
         t= periodic_timer.PeriodicTimer(self.sync_flight_data, self.db.retrieve_data_download_push_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
         t = periodic_timer.PeriodicTimer(self.sync_flight_data_object, self.db.retrieve_data_download_push_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
         # Flight_Data_Binary uses binary_data_push_rate
         t=periodic_timer.PeriodicTimer(self.sync_flight_data_binary, self.db.retrieve_binary_data_push_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
         # Command_Log_ground_to_sv uses command_poll_rate
         t = periodic_timer.PeriodicTimer(self.sync_command_log_ground_to_sv, self.db.retrieve_command_log_poll_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
         # Command_Log_sv_to_ground uses command_push_rate
         t = periodic_timer.PeriodicTimer(self.sync_command_log_sv_to_ground, self.db.retrieve_command_log_push_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
         # System_Messages uses command_syslog_push_rate
         t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
 
         # Recording_Sessions uses command_syslog_push_rate
         t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, self.db.retrieve_command_syslog_push_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
 
     def __del__(self):
