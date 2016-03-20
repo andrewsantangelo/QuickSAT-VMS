@@ -61,6 +61,7 @@ class vms(object):
             }
         }
         self.linkstar = linkstar.linkstar(**self.args['vms'])
+        
         # Connect to the QS/VMS DB
         self.db = vms_db.vms_db(**self.args['vms'])
         
@@ -111,7 +112,7 @@ class vms(object):
 
         # For now, use the command poll rate to run the "command log monitor" function
         t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_log_poll_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
         # Use a pre-defined radio status poll time for now 
         t = periodic_timer.PeriodicTimer(self.radio_status, 60)
@@ -190,6 +191,8 @@ class vms(object):
 
     def process(self):
         self.commands = self.db.all_pending_commands()
+        print "commands:"
+        print self.commands
         while self.commands:
             # Most likely there should only be one set of these commands queued
             # up, but it is possible that some combinations may be pending at

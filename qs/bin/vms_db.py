@@ -40,6 +40,7 @@ class vms_db(object):
         if not self.config['ssl_ca']:
             del self.config['ssl_ca']         
         self.open()
+        # moving radio to linkstar.py
         #self.radio = radio_status.gsp1720()
         self.ppp = None
         
@@ -118,6 +119,7 @@ class vms_db(object):
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
+                WHERE `System_Applications`.`virtual_machine_id` > 0
         '''
         
         with self.lock:
@@ -128,6 +130,24 @@ class vms_db(object):
         return apps
 
     def all_pending_commands(self):
+        print "entering vms_db.all_pending_commands()"
+        
+        stmt = '''
+            SELECT *
+                FROM `stepSATdb_Flight`.`Command_Log`
+                WHERE `Command_Log`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    )
+        '''
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchall()
+            print "entire command log:"
+            print results
+        
+        
         stmt = '''
             SELECT `Command_Log`.`command` AS command,
                     `Command_Log`.`time_of_command` AS time,
@@ -146,8 +166,12 @@ class vms_db(object):
         
         with self.lock:
             self.cursor.execute(stmt)
+            print self.cursor
             commands = {}
+            print "test"
             for row in self.cursor:
+                print "db rows from vms_db.all_pending_commands():"
+                print row
                 cmd = row.pop('command')
                 if cmd not in commands:
                     commands[cmd] = []
