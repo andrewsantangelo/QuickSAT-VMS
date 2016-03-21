@@ -93,7 +93,7 @@ class vms(object):
             self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
         
         # Connect to the MCP target
-        #self.mcp = mcp_target.mcp_target(**self.args['mcp'])
+        self.mcp = mcp_target.mcp_target(**self.args['mcp'])
 
         self.commands = {}
 
