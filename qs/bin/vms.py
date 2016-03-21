@@ -13,6 +13,7 @@ import mcp_target
 import periodic_timer
 import vms_db_ground
 import ls_comm_flight_stream
+import linkstar
 
 
 def write_json_data(data, filename):
@@ -59,7 +60,8 @@ class vms(object):
                 'flight-stream': flight_stream_flag
             }
         }
-
+        self.linkstar = linkstar.linkstar(**self.args['vms'])
+        
         # Connect to the QS/VMS DB
         self.db = vms_db.vms_db(**self.args['vms'])
         
@@ -91,7 +93,7 @@ class vms(object):
             self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
         
         # Connect to the MCP target
-        #self.mcp = mcp_target.mcp_target(**self.args['mcp'])
+        self.mcp = mcp_target.mcp_target(**self.args['mcp'])
 
         self.commands = {}
 
@@ -110,7 +112,7 @@ class vms(object):
 
         # For now, use the command poll rate to run the "command log monitor" function
         t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_log_poll_rate())
-        #self.threads.append(t)
+        self.threads.append(t)
         
         # Use a pre-defined radio status poll time for now 
         t = periodic_timer.PeriodicTimer(self.radio_status, 60)
@@ -150,7 +152,7 @@ class vms(object):
 
     def radio_status(self):
         # Have the VMS DB connection retrieve and update the radio status
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         # Keep the poll rate constant for now, it shouldn't change
         return 39                
 
@@ -189,7 +191,11 @@ class vms(object):
 
     def process(self):
         self.commands = self.db.all_pending_commands()
+        print "commands:"
+        print self.commands
         while self.commands:
+            print "inside while loop"
+            print self.commands
             # Most likely there should only be one set of these commands queued
             # up, but it is possible that some combinations may be pending at
             # the same time.  To make the logic simpler, just check for all
@@ -489,7 +495,7 @@ class vms(object):
     def call(self):
         cmds = self.commands.pop('CALL')
         try:
-            self.db.call('777')
+            self.linkstar.call('777')
             self.db.complete_commands(cmds, True)
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
@@ -497,7 +503,7 @@ class vms(object):
     def hangup(self):
         cmds = self.commands.pop('HANGUP')
         try:
-            self.db.hangup()
+            self.linkstar.hangup()
             self.db.complete_commands(cmds, True)
         except:
             self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
@@ -530,7 +536,7 @@ class vms(object):
     """        
             
     def sync_flight_data_object(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data object test"
@@ -545,7 +551,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
             
     def sync_flight_data_binary(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data binary test"
@@ -560,7 +566,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
     def sync_flight_data(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data test"
@@ -575,7 +581,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "system message test"
@@ -590,7 +596,7 @@ class vms(object):
                         self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
                     
     def sync_recording_sessions(self):
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "recording sessions test"
@@ -605,7 +611,7 @@ class vms(object):
     # read from sv db
     # write to ground db
     # update sv db
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 cmds = self.commands.pop('SYNC_COMMAND_LOG_SV_TO_GROUND', None)
@@ -623,7 +629,7 @@ class vms(object):
     def sync_command_log_ground_to_sv(self):
     #sync from ground to sv
     #run pending commands
-        self.db.get_radio_status()
+        self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 cmds = self.commands.pop('SYNC_COMMAND_LOG_GROUND_TO_SV', None)
@@ -639,4 +645,20 @@ class vms(object):
                 #    if cmds:
                  #       self.db.complete_commands(cmds, False, traceback.format_exception(*sys.exc_info()))
     
-   
+    def check_test_connection(self):
+        stmt = '''
+            SELECT `Recording_Session_State`.`test_connection`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                )
+            LIMIT 1
+        '''
+        
+        with self.lock:
+            self.cursor.execute(stmt)
+            results = self.cursor.fetchone()
+            
+        connection = results['test_connection']
+        return connection

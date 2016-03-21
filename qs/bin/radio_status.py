@@ -8,6 +8,7 @@
 
 import serial
 import threading
+import syslog
 
 class gsp1720(object):
     # set default dtr_pin back to 48 when dtr_pin init is properly handled
@@ -110,7 +111,8 @@ class gsp1720(object):
         return (avail, rssi, roaming)
         
     def call(self, number):
-        print "entering call()"
+        print "entering radio_status.call()"
+        syslog.syslog(syslog.LOG_DEBUG, 'entering radio_status.call()')
         with self.lock:
             self.serial.flush()
             # set the timeout longer to allow time for the connection to be made
