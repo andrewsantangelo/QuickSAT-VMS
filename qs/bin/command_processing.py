@@ -1,10 +1,20 @@
 #!/usr/bin/env python
+"""
+Module used to start the QS/VMS command processing application.
+"""
 
 import argparse
 import vms
 import syslog
 import sys
 import traceback
+
+# Disable some pylint warnings that I don't care about
+# pylint: disable=line-too-long,fixme,invalid-name,star-args
+#
+# TEMPORARY:
+# pylint: disable=missing-docstring
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Monitor the QS/VMS command table periodically')
@@ -16,13 +26,6 @@ if __name__ == '__main__':
     parser.add_argument('--no-vms-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --vms-username)')
     parser.add_argument('--vms-password', default='quicksat1', help='password for the QS/VMS database')
     parser.add_argument('--no-vms-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --vms-password)')
-    parser.add_argument('--mcp-address', required=True, help='address (IP or URL) of the system that MCP is installed on')
-    parser.add_argument('--mcp-port', type=int, default=22, help='UDP port used by the system that MCP is installed on')
-    parser.add_argument('--mcp-username', default='root', help='username for the system that MCP is installed on')
-    parser.add_argument('--no-mcp-username', action='store_true', help='specify that a username is not required for the MCP system (overrides --mcp-username)')
-    parser.add_argument('--mcp-password', default='root', help='password for the system that MCP is installed on')
-    parser.add_argument('--no-mcp-password', action='store_true', help='specify that a password is not required for the MCP system (overrides --mcp-username)')
-    parser.add_argument('--domu-ip-range', default='', help='the IP address range to use for the VMs (DHCP used when this option is blank)')
     parser.add_argument('--flight-stream-flag', default='DISABLED', help='When True it tells VMS to stream data from stepSATdb_FlightAV between the vehicle and ground station')
 
     # Parse the command line arguments
@@ -33,18 +36,14 @@ if __name__ == '__main__':
     if args.no_vms_username:
         args.vms_username = None
 
-    if args.no_mcp_password:
-        args.mcp_password = None
-    if args.no_mcp_username:
-        args.mcp_username = None
-
-    # Catch any exceptions, log the error and then restart the command 
-    # processing service.  We can't assume that the DB connection is still 
+    # Catch any exceptions, log the error and then restart the command
+    # processing service.  We can't assume that the DB connection is still
     # functional, so just log the error to the syslog.
     run = True
     while run:
+        # pylint: disable=bare-except
         try:
-            # All of the required arguments should be present, so just pass 
+            # All of the required arguments should be present, so just pass
             # a dict() object to the vms class constructor
             conn = vms.vms(**vars(args))
             conn.run()
@@ -57,5 +56,3 @@ if __name__ == '__main__':
             msg = 'RESTARTING, caught exception: {}'.format(traceback.format_exception(*sys.exc_info()))
             syslog.syslog(syslog.LOG_ERR, msg)
             run = False
-
-

@@ -152,7 +152,7 @@ class mct(object):
                 id          INTEGER PRIMARY KEY,
                 name        TEXT,
                 type        TEXT,
-                port        TEXT
+                value       REAL NOT NULL DEFAULT 0.0
             );
 
             CREATE TABLE physicalInterfaceTable (
@@ -280,10 +280,11 @@ class mct(object):
                 INSERT INTO scheduleTable VALUES(2,'safe',10);
                 INSERT INTO stateTable VALUES(1,'operating',1,1,1);
                 INSERT INTO stateTable VALUES(2,'halted',2,2,1);
-                INSERT INTO ruleTable VALUES(1,'move to halted state',3600.0,'1',3,0);
+                INSERT INTO ruleTable VALUES(1,'move to halted state',3600.0,'1',3,2);
                 INSERT INTO ruleTable VALUES(2,'monitor domain state',60.0,'1',9,0);
-                INSERT INTO stateRuleLink VALUES(0,2);
+                INSERT INTO stateRuleLink VALUES(1,1);
                 INSERT INTO stateRuleLink VALUES(1,2);
+                INSERT INTO stateRuleLink VALUES(2,2);
                 COMMIT;
                 ''')
 
@@ -339,7 +340,7 @@ class mct(object):
     def path(self):
         return os.path.join(self.working_dir, 'mct.db')
 
-    def addapps(self, apps, dom0_ip, domu_ip_range, db_password):
+    def addapps(self, apps, dom0_ip, domu_ip_range):
         # The apps parameter is an iterable list of application configurations
         # that contains the following values:
         #   - id
@@ -384,7 +385,7 @@ class mct(object):
 
             # Set the domU extra boot params
             #apps[i]['extra'] = 'console=hvc0 xencons=tty root=/dev/xvda domu_start=/opt/mcp/images/{} domu_server={} domu_param={}'.format(apps[i]['name'], vms_ip_addr, apps[i]['param'])
-            apps[i]['extra'] = 'console=hvc0 xencons=tty root=/dev/xvda --password={} --app={} --address={}'.format(db_password, apps[i]['id'], vms_ip_addr)
+            apps[i]['extra'] = 'console=hvc0 xencons=tty root=/dev/xvda --app={} --address={}'.format(apps[i]['id'], vms_ip_addr)
             if domu_ip_range:
                 apps[i]['extra'] += ' ip={}.{} gw={} netmask=255.255.255.0'.format(domu_ip_prefix, int(domu_ip_range) + int(apps[i]['vm']), gateway_ip)
 
