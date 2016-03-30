@@ -1,6 +1,6 @@
 #!/bin/sh
 ### BEGIN INIT INFO
-# Provides:          db_command_processing
+# Provides:          mcp_monitor
 # Required-Start:    $local_fs $network mysql
 # Required-Stop:     $local_fs $network mysql
 # Default-Start:     2 3 4 5
@@ -9,11 +9,11 @@
 # Description:       DB Command Processing Service
 ### END INIT INFO
 
-NAME=db_command_processing
-PROG=command_processing.py
+NAME=mcp_monitor
+PROG=mcp_monitor.py
 DAEMON=/opt/qs/bin/$PROG
 PIDDIR=/var/run
-PIDFILE=$PIDDIR/db_command_processing.pid
+PIDFILE=$PIDDIR/mcp_monitor.pid
 DAEMONUSER=root
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 
@@ -21,7 +21,7 @@ test -x $DAEMON || exit 0
 
 . /lib/lsb/init-functions
 
-db_command_processing_start () {
+mcp_monitor_start () {
 	log_daemon_msg "Starting system $NAME Daemon"
 	if [ ! -d $PIDDIR ]; then
 		mkdir -p $PIDDIR
@@ -32,7 +32,7 @@ db_command_processing_start () {
 	log_end_msg ${status}
 }
 
-db_command_processing_stop() {
+mcp_monitor_stop() {
 	log_daemon_msg "Stopping system $NAME Daemon"
 	start-stop-daemon -p $PIDFILE --stop --retry 5 || echo -n "...which is not running"
 	status=$?
@@ -44,16 +44,16 @@ db_command_processing_stop() {
 
 case "$1" in
 	start|stop)
-		db_command_processing_${1}
+		mcp_monitor_${1}
 		;;
 	restart)
 		if [ -s $PIDFILE ] && kill -0 $(cat $PIDFILE) >/dev/null 2>&1; then
-			db_command_processing_stop
-			db_command_processing_start
+			mcp_monitor_stop
+			mcp_monitor_start
 		fi
 		;;
 	force-stop)
-		db_command_processing_stop
+		mcp_monitor_stop
 		sudo pkill $PROG || true
 		sleep 2
 		sudo pkill -9 $PROG || true
@@ -62,7 +62,7 @@ case "$1" in
 		status_of_proc -p $PIDFILE "$DAEMON" "system-wide $NAME" && exit 0 || exit $?
 		;;
 	*)
-		echo "Usage: /etc/init.d/db_command_processing {start|stop|force-stop|restart|status}"
+		echo "Usage: /etc/init.d/mcp_monitor {start|stop|force-stop|restart|status}"
 		exit 1
 		;;
 esac

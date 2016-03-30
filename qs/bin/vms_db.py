@@ -113,9 +113,46 @@ class vms_db(object):
             if self.db:
                 self.db.close()
 
-    def getapps(self):
-        # Extract the application ID and name from the 'System_Applications'
-        # table, and the parameter ID from the 'Parameter_ID_Table'
+    def get_board_connection_data(self, ident=None, name=None):
+        """
+        Returns all the connection information for the configuration part
+        associated with the specified application.  The info can be retrieved
+        either with a unique app name or a unique app id.
+        """
+        stmt = '''
+            SELECT `System_Applications`.`application_id` AS id,
+                    `System_Applications`.`application_name` AS name,
+                    `System_Applications`.`virtual_machine_id` AS vm,
+                    `System_Applications`.`Configuration_Parts_part_key` AS part,
+                    `Virtual_Machines`.`connection_method` AS method,
+                    `Virtual_Machines`.`connection_address` AS address,
+                    `Virtual_Machines`.`connection_username` AS username,
+                    `Virtual_Machines`.`connection_password` AS password,
+                FROM `stepSATdb_Flight`.`System_Applications`
+                LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
+                ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
+                WHERE `System_Applications`.`{}`={}
+        '''
+        if ident:
+            stmt.format('application_id', ident)
+        elif name:
+            stmt.format('application_name', name)
+        else:
+            stmt = None
+
+        if stmt:
+            self.cursor.execute(stmt)
+            info = self.cursor.fetchall()
+            return info
+        else:
+            syslog.syslog(syslog.LOG_DEBUG, 'get_board_connection_data() called with no application identification info')
+            return None
+
+    def get_app_info(self, ident=None, name=None):
+        """
+        Returns all database information regarding a single application.  The
+        info can be retrieved either with a unique app name or a unique app id.
+        """
         stmt = '''
             SELECT `System_Applications`.`application_id` AS id,
                     `System_Applications`.`application_name` AS name,
@@ -128,15 +165,70 @@ class vms_db(object):
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
-                WHERE `System_Applications`.`virtual_machine_id` > 0
+                WHERE `System_Applications`.`{}`={}
         '''
+        if ident:
+            stmt.format('application_id', ident)
+        elif name:
+            stmt.format('application_name', name)
+        else:
+            stmt = None
 
-        with self.lock:
+        if stmt:
+            self.cursor.execute(stmt)
+            info = self.cursor.fetchall()
+            return info
+        else:
+            syslog.syslog(syslog.LOG_DEBUG, 'get_app_info() called with no application identification info')
+            return None
+
+    def get_board_apps(self, ident=None, name=None):
+        """
+        Retrieves all applications in all VMs for the configuration part
+        associated with the specified application.  The info can be retrieved
+        either with a unique app name or a unique app id.
+
+        Find which VMs are present on the target board.  The board can be
+        identified by following the VM that this application is present on,
+        then identifying all VMs that have the same vm_board_part_key value.
+        """
+        stmt = '''
+            SELECT `System_Applications`.`application_id` AS id,
+                    `System_Applications`.`application_name` AS name,
+                    `System_Applications`.`virtual_machine_id` AS vm,
+                    `System_Applications`.`application_state` AS state,
+                    `System_Applications`.`Configuration_Parts_part_key` AS part,
+                    `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS config,
+                    `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS mission,
+                    `Parameter_ID_Table`.`parameter_id` AS param,
+                    `match`.key AS board,
+                FROM `stepSATdb_Flight`.`System_Applications`
+                LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
+                ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
+                LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
+                ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
+                LEFT JOIN
+                    (SELECT `Virtual_Machines`.`vm_board_part_key` AS key
+                        FROM `stepSATdb_Flight`.`System_Applications`
+                        LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
+                        ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
+                        WHERE `System_Applications`.`{}` = {}) as match
+                ON `Virtual_Machines`.`vm_board_part_key` = `match`.`key`
+        '''
+        if ident:
+            stmt.format('application_id', ident)
+        elif name:
+            stmt.format('application_name', name)
+        else:
+            stmt = None
+
+        if stmt:
             self.cursor.execute(stmt)
             apps = self.cursor.fetchall()
-            syslog.syslog(syslog.LOG_DEBUG, 'Retrieved applications "{}"'.format(str(apps)))
-
-        return apps
+            return apps
+        else:
+            syslog.syslog(syslog.LOG_DEBUG, 'get_board_apps() called with no application identification info')
+            return None
 
     def all_pending_commands(self):
         print "entering vms_db.all_pending_commands()"

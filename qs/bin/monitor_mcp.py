@@ -46,14 +46,14 @@ if __name__ == '__main__':
 
     # QS/VMS parameters
     db_group = parser.add_argument_group('VMS database arguments')
-    db_group.add_argument('--address', default='127.0.0.1', help='address (IP or URL) of QS/VMS database')
-    db_group.add_argument('--port', type=int, default=3306, help='UDP port used by the QS/VMS database')
-    db_group.add_argument('--cert', help='location of SSL certificate to use to connect to QS/VMS database')
-    db_group.add_argument('--dbname', default='stepSATdb_Flight', help='name of the QS/VMS database')
-    db_group.add_argument('--username', default='root', help='username for the QS/VMS database')
-    db_group.add_argument('--no-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --username)')
-    db_group.add_argument('--password', default='quicksat1', help='password for the QS/VMS database')
-    db_group.add_argument('--no-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --password)')
+    db_group.add_argument('--vms-address', default='127.0.0.1', help='address (IP or URL) of QS/VMS database')
+    db_group.add_argument('--vms-port', type=int, default=3306, help='UDP port used by the QS/VMS database')
+    db_group.add_argument('--vms-cert', help='location of SSL certificate to use to connect to QS/VMS database')
+    db_group.add_argument('--vms-dbname', default='stepSATdb_Flight', help='name of the QS/VMS database')
+    db_group.add_argument('--vms-username', default='root', help='username for the QS/VMS database')
+    db_group.add_argument('--no-vms-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --vms-username)')
+    db_group.add_argument('--vms-password', default='quicksat1', help='password for the QS/VMS database')
+    db_group.add_argument('--no-vms-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --vms-password)')
 
     args = parser.parse_args()
 
