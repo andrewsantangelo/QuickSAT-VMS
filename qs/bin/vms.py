@@ -31,12 +31,12 @@ def write_json_data(data, filename):
     f.close()
 
 
-def unknown_command_wrapper(db_args, key, cmd):
+def unknown_command_wrapper(db_args, cmd):
     local_db = vms_db.vms_db(**db_args)
 
     # If the command is "STRING.STRING", split the string and attempt
     # to import a module to handle the command.
-    subcmd = key.split('.', 2)
+    subcmd = cmd['command'].split('.', 2)
     if len(cmd) == 2:
         # pylint: disable=bare-except
         try:
@@ -61,7 +61,7 @@ def unknown_command_wrapper(db_args, key, cmd):
                 local_db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
     else:
         # This is not a custom command, just log it as an unknown error
-        msg = 'Unknown command {}:{}'.format(key, cmd)
+        msg = 'Unknown command {}:{}'.format(cmd['command'], cmd)
         local_db.complete_commands(cmd, False, msg)
 
 
@@ -179,39 +179,39 @@ class vms(object):
     def process(self):
         # pylint: disable=too-many-branches
         commands = self.db.all_pending_commands()
-        for (key, cmd) in sorted(commands, key=operator.itemgetter("priority")):
+        for cmd in sorted(commands, key=operator.itemgetter("priority")):
             # Most likely there should only be one set of these commands queued
             # up, but it is possible that some combinations may be pending at
             # the same time.  To make the logic simpler, just check for all
             # possibilities
-            if key == 'RETRIEVE_COMMAND_LOGS':
+            if cmd['command'] == 'RETRIEVE_COMMAND_LOGS':
                 self.retrieve_command_logs(cmd)
-            elif key == 'RETRIEVE_SYSTEM_MESSAGES':
+            elif cmd['command'] == 'RETRIEVE_SYSTEM_MESSAGES':
                 self.retrieve_system_messages(cmd)
-            elif key == 'RETRIEVE_FLIGHT_DATA':
+            elif cmd['command'] == 'RETRIEVE_FLIGHT_DATA':
                 self.retrieve_flight_data(cmd)
-            elif key == 'CREATE_REC_SESSION':
+            elif cmd['command'] == 'CREATE_REC_SESSION':
                 self.create_rec_session(cmd)
-            elif key == 'CALL':
+            elif cmd['command'] == 'CALL':
                 self.call(cmd)
-            elif key == 'HANGUP':
+            elif cmd['command'] == 'HANGUP':
                 self.hangup(cmd)
-            elif key == 'SYNC_FLIGHT_DATA_OBJECT':
+            elif cmd['command'] == 'SYNC_FLIGHT_DATA_OBJECT':
                 self.sync_flight_data_object(cmd)
-            elif key == 'SYNC_FLIGHT_DATA_BINARY':
+            elif cmd['command'] == 'SYNC_FLIGHT_DATA_BINARY':
                 self.sync_flight_data_binary(cmd)
-            elif key == 'SYNC_FLIGHT_DATA':
+            elif cmd['command'] == 'SYNC_FLIGHT_DATA':
                 self.sync_flight_data(cmd)
-            elif key == 'SYNC_COMMAND_LOG_SV_TO_GROUND':
+            elif cmd['command'] == 'SYNC_COMMAND_LOG_SV_TO_GROUND':
                 self.sync_command_log_sv_to_ground(cmd)
-            elif key == 'SYNC_COMMAND_LOG_GROUND_TO_SV':
+            elif cmd['command'] == 'SYNC_COMMAND_LOG_GROUND_TO_SV':
                 self.sync_command_log_ground_to_sv(cmd)
-            elif key == 'SYNC_SYSTEM_MESSAGES':
+            elif cmd['command'] == 'SYNC_SYSTEM_MESSAGES':
                 self.sync_system_messages(cmd)
-            elif key == 'SYNC_RECORDING_SESSIONS':
+            elif cmd['command'] == 'SYNC_RECORDING_SESSIONS':
                 self.sync_recording_sessions(cmd)
             else:
-                self.handle_unknown_command(key, cmd)
+                self.handle_unknown_command(cmd['command'], cmd)
 
         # return the new poll rate if it has changed
         return self.db.retrieve_command_log_poll_rate()
@@ -319,7 +319,7 @@ class vms(object):
         self.db.start_command(cmd)
 
         # Now spawn a separate process to handle the command
-        multiprocessing.Process(target=unknown_command_wrapper, args=(self.args['vms'], key, cmd))
+        multiprocessing.Process(target=unknown_command_wrapper, args=(self.args['vms'], cmd))
 
     def call(self, cmd):
         # pylint: disable=bare-except
