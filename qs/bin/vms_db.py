@@ -581,6 +581,8 @@ class vms_db(object):
             # pylint: disable=bare-except
             try:
                 self.cursor.execute(stmt_data_write)
+            except KeyboardInterrupt as e:
+                raise e
             except:
                 # TODO: consider writing to syslog or message log
                 pass

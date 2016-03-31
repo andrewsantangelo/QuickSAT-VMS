@@ -8,6 +8,7 @@ import argparse
 import syslog
 import time
 import sys
+import traceback
 
 # Easiest way to do sftp, install with
 #   $ pip install paramiko
@@ -18,7 +19,7 @@ import paramiko
 import vms_db
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme
+# pylint: disable=line-too-long,fixme,star-args
 
 
 def get_mcp_status(address, port, username, password):
@@ -30,13 +31,31 @@ def get_mcp_status(address, port, username, password):
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.load_system_host_keys()
-    ssh.connect(address, port, username, password)
+    ssh_config = {
+        'hostname': address,
+        'port': port,
+        'username': username,
+        'password': password,
+        'timeout': 1.0,
+        'banner_timeout': 2.0,
+    }
+    ssh.connect(**ssh_config)
 
     # Run the status command to check on MCP
-    _, out, err = ssh.exec_command('service mcp status')
-    exit_status = out.channel.recv_exit_status()
-    out_data = out.channel.recv(1000)
-    err_data = err.channel.recv(1000)
+    # pylint: disable=bare-except
+    try:
+        _, out, err = ssh.exec_command('service mcp status')
+        exit_status = out.channel.recv_exit_status()
+        out_data = out.channel.recv(1000)
+        err_data = err.channel.recv(1000)
+    except KeyboardInterrupt as error:
+        raise error
+    except:
+        err = 'MCP status failed: {}'.format(traceback.format_exception(*sys.exc_info()))
+        syslog.syslog(syslog.LOG_ERR, err)
+        exit_status = 1
+        out_data = err
+
     ssh.close()
 
     return (exit_status, out_data, err_data)
