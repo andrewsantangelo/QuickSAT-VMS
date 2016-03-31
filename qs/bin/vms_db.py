@@ -131,12 +131,12 @@ class vms_db(object):
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
                 ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
-                WHERE `System_Applications`.`{}`={}
+                WHERE `System_Applications`.`{}` = {}
         '''
         if ident:
-            stmt.format('application_id', ident)
+            stmt = stmt.format('application_id', ident)
         elif name:
-            stmt.format('application_name', str(name))
+            stmt = stmt.format('application_name', repr(name))
         else:
             stmt = None
 
@@ -144,6 +144,8 @@ class vms_db(object):
             with self.lock:
                 self.cursor.execute(stmt)
                 info = self.cursor.fetchall()
+            if len(info) == 1:
+                info = info[0]
             return info
         else:
             syslog.syslog(syslog.LOG_DEBUG, 'get_board_connection_data() called with no application identification info')
@@ -166,12 +168,12 @@ class vms_db(object):
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
-                WHERE `System_Applications`.`{}`={}
+                WHERE `System_Applications`.`{}` = {}
         '''
         if ident:
-            stmt.format('application_id', ident)
+            stmt = stmt.format('application_id', ident)
         elif name:
-            stmt.format('application_name', str(name))
+            stmt = stmt.format('application_name', repr(name))
         else:
             stmt = None
 
@@ -179,6 +181,8 @@ class vms_db(object):
             with self.lock:
                 self.cursor.execute(stmt)
                 info = self.cursor.fetchall()
+            if len(info) == 1:
+                info = info[0]
             return info
         else:
             syslog.syslog(syslog.LOG_DEBUG, 'get_app_info() called with no application identification info')
@@ -217,9 +221,9 @@ class vms_db(object):
                     WHERE `System_Applications`.`{}` = {})
         '''
         if ident:
-            stmt.format('application_id', ident)
+            stmt = stmt.format('application_id', ident)
         elif name:
-            stmt.format('application_name', str(name))
+            stmt = stmt.format('application_name', repr(name))
         else:
             stmt = None
 

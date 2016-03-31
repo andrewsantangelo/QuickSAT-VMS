@@ -340,7 +340,7 @@ def process(db, cmd, data):
         result = MCP.stop()
     elif cmd == 'add_vmapp':
         # get a list of all apps on the same board as mcp
-        apps = db.get_board_apps('mcp')
+        apps = db.get_board_apps(name='mcp')
 
         # Drop any dom0 applications from the list
         apps = [a for a in apps if a['vm'] > 0]
@@ -370,7 +370,7 @@ def process(db, cmd, data):
 
     elif cmd == 'remove_vmapp':
         # get a list of all apps on the same board as mcp
-        apps = db.get_board_apps('mcp')
+        apps = db.get_board_apps(name='mcp')
 
         # Drop any dom0 applications from the list
         apps = [a for a in apps if a['vm'] > 0]

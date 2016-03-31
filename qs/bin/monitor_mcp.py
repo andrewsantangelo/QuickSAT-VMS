@@ -7,6 +7,7 @@ Module that will periodically check the status of MCP on the target board
 import argparse
 import syslog
 import time
+import sys
 
 # Easiest way to do sftp, install with
 #   $ pip install paramiko
@@ -41,26 +42,26 @@ def get_mcp_status(address, port, username, password):
     return (exit_status, out_data, err_data)
 
 if __name__ == '__main__':
-    # pylint: disable=invalid-name,star-args
+    # pylint: disable=invalid-name,star-args,protected-access
     parser = argparse.ArgumentParser(description='Monitors health of the MCP application')
 
     # QS/VMS parameters
     db_group = parser.add_argument_group('VMS database arguments')
-    db_group.add_argument('--vms-address', default='127.0.0.1', help='address (IP or URL) of QS/VMS database')
-    db_group.add_argument('--vms-port', type=int, default=3306, help='UDP port used by the QS/VMS database')
-    db_group.add_argument('--vms-cert', help='location of SSL certificate to use to connect to QS/VMS database')
-    db_group.add_argument('--vms-dbname', default='stepSATdb_Flight', help='name of the QS/VMS database')
-    db_group.add_argument('--vms-username', default='root', help='username for the QS/VMS database')
-    db_group.add_argument('--no-vms-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --vms-username)')
-    db_group.add_argument('--vms-password', default='quicksat1', help='password for the QS/VMS database')
-    db_group.add_argument('--no-vms-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --vms-password)')
+    db_group.add_argument('--address', default='127.0.0.1', help='address (IP or URL) of QS/VMS database')
+    db_group.add_argument('--port', type=int, default=3306, help='UDP port used by the QS/VMS database')
+    db_group.add_argument('--cert', help='location of SSL certificate to use to connect to QS/VMS database')
+    db_group.add_argument('--dbname', default='stepSATdb_Flight', help='name of the QS/VMS database')
+    db_group.add_argument('--username', default='root', help='username for the QS/VMS database')
+    db_group.add_argument('--no-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --username)')
+    db_group.add_argument('--password', default='quicksat1', help='password for the QS/VMS database')
+    db_group.add_argument('--no-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --password)')
 
     args = parser.parse_args()
 
-    if args.no_vms_password:
-        args.vms_password = None
-    if args.no_vms_username:
-        args.vms_username = None
+    if args.no_password:
+        args.password = None
+    if args.no_username:
+        args.username = None
 
     # Identify this service as started
     syslog.syslog(syslog.LOG_INFO, 'Starting MCP monitor')
@@ -69,7 +70,27 @@ if __name__ == '__main__':
     db = vms_db.vms_db(**vars(args))
 
     # Retrieve the address of the board that MCP is running on
-    config = db.get_board_connection_data('mcp')
+    data = db.get_board_connection_data(name='mcp')
+    if data['method'] == 'ETHERNET':
+        addr = data['address'].split(':', 2)
+
+        config = {
+            'address': addr[0],
+            'username': data['username'],
+            'password': data['password'],
+        }
+
+        # If the port was not specified in the address, set it to the
+        # default (22).
+        if len(addr) == 1:
+            config['port'] = 22
+        else:
+            config['port'] = addr[1]
+    else:
+        msg = 'Unsupported mcp connection method: {}'.format(data['method'])
+        db._log_msg(msg)
+        sys.exit(1)
+
     info = db.get_app_info(name='mcp')
 
     # Mark the initial MCP status as presumed to be initializing
