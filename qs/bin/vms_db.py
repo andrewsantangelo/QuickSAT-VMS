@@ -141,8 +141,9 @@ class vms_db(object):
             stmt = None
 
         if stmt:
-            self.cursor.execute(stmt)
-            info = self.cursor.fetchall()
+            with self.lock:
+                self.cursor.execute(stmt)
+                info = self.cursor.fetchall()
             return info
         else:
             syslog.syslog(syslog.LOG_DEBUG, 'get_board_connection_data() called with no application identification info')
@@ -175,8 +176,9 @@ class vms_db(object):
             stmt = None
 
         if stmt:
-            self.cursor.execute(stmt)
-            info = self.cursor.fetchall()
+            with self.lock:
+                self.cursor.execute(stmt)
+                info = self.cursor.fetchall()
             return info
         else:
             syslog.syslog(syslog.LOG_DEBUG, 'get_app_info() called with no application identification info')
@@ -223,8 +225,9 @@ class vms_db(object):
             stmt = None
 
         if stmt:
-            self.cursor.execute(stmt)
-            apps = self.cursor.fetchall()
+            with self.lock:
+                self.cursor.execute(stmt)
+                apps = self.cursor.fetchall()
             return apps
         else:
             syslog.syslog(syslog.LOG_DEBUG, 'get_board_apps() called with no application identification info')
