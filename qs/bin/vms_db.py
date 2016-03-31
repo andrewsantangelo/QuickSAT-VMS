@@ -272,16 +272,7 @@ class vms_db(object):
 
         with self.lock:
             self.cursor.execute(stmt)
-            print self.cursor
-            commands = {}
-            print "test"
-            for row in self.cursor:
-                print "db rows from vms_db.all_pending_commands():"
-                print row
-                cmd = row.pop('command')
-                if cmd not in commands:
-                    commands[cmd] = []
-                commands[cmd].append(row)
+            commands = self.cursor.fetchall()
 
         if commands:
             syslog.syslog(syslog.LOG_DEBUG, 'Retrieved pending commands "{}"'.format(str(commands)))
