@@ -120,14 +120,14 @@ class vms_db(object):
         either with a unique app name or a unique app id.
         """
         stmt = '''
-            SELECT `System_Applications`.`application_id` AS id,
-                    `System_Applications`.`application_name` AS name,
-                    `System_Applications`.`virtual_machine_id` AS vm,
-                    `System_Applications`.`Configuration_Parts_part_key` AS part,
-                    `Virtual_Machines`.`connection_method` AS method,
-                    `Virtual_Machines`.`connection_address` AS address,
-                    `Virtual_Machines`.`connection_username` AS username,
-                    `Virtual_Machines`.`connection_password` AS password
+            SELECT `System_Applications`.`application_id` AS 'id',
+                    `System_Applications`.`application_name` AS 'name',
+                    `System_Applications`.`virtual_machine_id` AS 'vm',
+                    `System_Applications`.`Configuration_Parts_part_key` AS 'part',
+                    `Virtual_Machines`.`connection_method` AS 'method',
+                    `Virtual_Machines`.`connection_address` AS 'address',
+                    `Virtual_Machines`.`connection_username` AS 'username',
+                    `Virtual_Machines`.`connection_password` AS 'password'
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
                 ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
@@ -155,14 +155,14 @@ class vms_db(object):
         info can be retrieved either with a unique app name or a unique app id.
         """
         stmt = '''
-            SELECT `System_Applications`.`application_id` AS id,
-                    `System_Applications`.`application_name` AS name,
-                    `System_Applications`.`virtual_machine_id` AS vm,
-                    `System_Applications`.`application_state` AS state,
-                    `System_Applications`.`Configuration_Parts_part_key` AS part,
-                    `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS config,
-                    `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS mission,
-                    `Parameter_ID_Table`.`parameter_id` AS param
+            SELECT `System_Applications`.`application_id` AS 'id',
+                    `System_Applications`.`application_name` AS 'name',
+                    `System_Applications`.`virtual_machine_id` AS 'vm',
+                    `System_Applications`.`application_state` AS 'state',
+                    `System_Applications`.`Configuration_Parts_part_key` AS 'part',
+                    `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS 'config',
+                    `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS 'mission',
+                    `Parameter_ID_Table`.`parameter_id` AS 'param'
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
@@ -195,22 +195,22 @@ class vms_db(object):
         then identifying all VMs that have the same vm_board_part_key value.
         """
         stmt = '''
-            SELECT `System_Applications`.`application_id` AS id,
-                    `System_Applications`.`application_name` AS name,
-                    `System_Applications`.`virtual_machine_id` AS vm,
-                    `System_Applications`.`application_state` AS state,
-                    `System_Applications`.`Configuration_Parts_part_key` AS part,
-                    `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS config,
-                    `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS mission,
-                    `Parameter_ID_Table`.`parameter_id` AS param,
-                    `match`.key AS board,
+            SELECT `System_Applications`.`application_id` AS 'id',
+                    `System_Applications`.`application_name` AS 'name',
+                    `System_Applications`.`virtual_machine_id` AS 'vm',
+                    `System_Applications`.`application_state` AS 'state',
+                    `System_Applications`.`Configuration_Parts_part_key` AS 'part',
+                    `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS 'config',
+                    `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS 'mission',
+                    `Parameter_ID_Table`.`parameter_id` AS 'param',
+                    `match`.key AS 'board'
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
                 LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
                 ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
                 LEFT JOIN
-                    (SELECT `Virtual_Machines`.`vm_board_part_key` AS key
+                    (SELECT `Virtual_Machines`.`vm_board_part_key` AS 'key'
                         FROM `stepSATdb_Flight`.`System_Applications`
                         LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
                         ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
