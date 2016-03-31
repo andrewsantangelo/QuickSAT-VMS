@@ -35,6 +35,7 @@ class vms_db_ground(object):
             'port': port,
             'database': dbname,
             'ssl_ca': cert,
+            'autocommit': True,
         }
         if not self.config['ssl_ca']:
             del self.config['ssl_ca']    
