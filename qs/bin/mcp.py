@@ -99,7 +99,8 @@ class McpTarget(object):
                 if status != 0:
                     # If the command did not execute correctly, place the
                     # stderr and stdout into an exception message
-                    raise Exception(status, stdout, stderr)
+                    exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+                    raise Exception(exp)
 
                 # force the target file systems to sync to ensure that any files
                 # written or removed are written through to the disk
@@ -108,7 +109,8 @@ class McpTarget(object):
                 if status != 0:
                     # If the command did not execute correctly, place the
                     # stderr and stdout into an exception message
-                    raise Exception(status, stdout, stderr)
+                    exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+                    raise Exception(exp)
 
     def reload(self, mctpath):
         """
@@ -125,7 +127,10 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+
+        return True
 
     def start(self):
         """
@@ -139,7 +144,9 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+        return True
 
     def stop(self):
         """
@@ -152,7 +159,10 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+
+        return True
 
     def restart(self):
         """
@@ -166,7 +176,10 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+
+        return True
 
     def reboot(self):
         """
@@ -178,7 +191,10 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+
+        return True
 
     def pause_vm(self, dom):
         """
@@ -190,7 +206,10 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+
+        return True
 
     def unpause_vm(self, dom):
         """
@@ -202,7 +221,10 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+
+        return True
 
     def reboot_vm(self, dom):
         """
@@ -214,7 +236,10 @@ class McpTarget(object):
         if status != 0:
             # If the command did not execute correctly, place the stderr and
             # stdout into an exception message
-            raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
+            raise Exception(exp)
+
+        return True
 
     def add_vm(self, new_app, apps, db_password):
         """
@@ -248,9 +273,7 @@ class McpTarget(object):
         newmct.close()
 
         # Restart MCP
-        self.reload(newmct.path())
-
-        return True
+        return self.reload(newmct.path())
 
     def remove_vm(self, remove_app, apps, db_password):
         """
@@ -288,9 +311,7 @@ class McpTarget(object):
         newmct.close()
 
         # Restart MCP
-        self.reload(newmct.path())
-
-        return True
+        return self.reload(newmct.path())
 
 
 # pylint: disable=invalid-name
@@ -417,15 +438,15 @@ def process(db, cmd, data):
             db.set_application_state(remove_app[0], 80, status, msg)
     elif cmd == 'pause_vm':
         # Find the name of the VM that should be paused
-        name = db.get_app_info(ident=data)['name']
+        name = db.get_app_info(ident=data)['part']
         result = MCP.pause_vm(name)
     elif cmd == 'unpause_vm':
         # Find the name of the VM that should be unpaused
-        name = db.get_app_info(ident=data)['name']
+        name = db.get_app_info(ident=data)['part']
         result = MCP.unpause_vm(name)
     elif cmd == 'reboot_vm':
         # Find the name of the VM that should be rebooted
-        name = db.get_app_info(ident=data)['name']
+        name = db.get_app_info(ident=data)['part']
         result = MCP.reboot_vm(name)
     else:
         msg = 'Unsupported mcp command: {}'.format(cmd)
