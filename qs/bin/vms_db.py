@@ -203,19 +203,18 @@ class vms_db(object):
                     `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS 'config',
                     `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS 'mission',
                     `Parameter_ID_Table`.`parameter_id` AS 'param',
-                    `match`.key AS 'board'
+                    `Virtual_Machines`.`vm_board_part_key` AS 'board'
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
                 LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
-                ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
-                LEFT JOIN
-                    (SELECT `Virtual_Machines`.`vm_board_part_key` AS 'key'
-                        FROM `stepSATdb_Flight`.`System_Applications`
-                        LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
-                        ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
-                        WHERE `System_Applications`.`{}` = {}) as match
-                ON `Virtual_Machines`.`vm_board_part_key` = `match`.`key`
+                ON `Virtual_Machines`.`virtual_machine_id` = `System_Applications`.`virtual_machine_id`
+                WHERE `Virtual_Machines`.`vm_board_part_key` =
+                    (SELECT `Virtual_Machines`.`vm_board_part_key`
+                    FROM `stepSATdb_Flight`.`System_Applications`
+                    LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
+                    ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
+                    WHERE `System_Applications`.`{}` = {})
         '''
         if ident:
             stmt.format('application_id', ident)
