@@ -32,12 +32,14 @@ def write_json_data(data, filename):
 
 
 def unknown_command_wrapper(db_args, cmd):
+    status = 5
+
     local_db = vms_db.vms_db(**db_args)
 
     # If the command is "STRING.STRING", split the string and attempt
     # to import a module to handle the command.
-    subcmd = cmd['command'].split('.', 2)
-    if len(cmd) == 2:
+    subcmd = cmd['command'].lower().split('.', 2)
+    if len(subcmd) == 2:
         # pylint: disable=bare-except
         try:
             m = importlib.import_module(subcmd[0])
@@ -45,6 +47,7 @@ def unknown_command_wrapper(db_args, cmd):
         except KeyboardInterrupt as e:
             raise e
         except:
+            status = 3
             # The previous statements could fail if a custom command
             # package is not defined, or if it does not have a process
             # function defined.
@@ -54,15 +57,20 @@ def unknown_command_wrapper(db_args, cmd):
         if cmd_process_func:
             try:
                 result = cmd_process_func(local_db, subcmd[1], cmd['data'])
+                status = int(not result)
                 local_db.complete_commands(cmd, result)
             except KeyboardInterrupt as e:
                 raise e
             except:
+                status = 4
                 local_db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
     else:
+        status = 2
         # This is not a custom command, just log it as an unknown error
         msg = 'Unknown command {}:{}'.format(cmd['command'], cmd)
         local_db.complete_commands(cmd, False, msg)
+
+    return status
 
 
 class vms(object):
@@ -112,6 +120,10 @@ class vms(object):
         # Define ls_comm_flight_stream
         if flight_stream_flag == 'ENABLED':
             self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
+
+        # Keep track of the unknown command processes to ensure they aren't
+        # deleted by the garbage collector.
+        self.cmd_processes = []
 
         self.threads = []
 
@@ -212,6 +224,14 @@ class vms(object):
                 self.sync_recording_sessions(cmd)
             else:
                 self.handle_unknown_command(cmd['command'], cmd)
+
+        # If there were any unknown command processes spawned, check them now
+        if self.cmd_processes:
+            msg = 'process status for cmd "{0.name}"= pid:{0.pid}, alive:{1}, return:{0.exitcode}'
+            for proc in self.cmd_processes[:]:
+                syslog.syslog(syslog.LOG_INFO, msg.format(proc, proc.is_alive()))
+                if not proc.is_alive():
+                    self.cmd_processes.remove(proc)
 
         # return the new poll rate if it has changed
         return self.db.retrieve_command_log_poll_rate()
@@ -319,7 +339,13 @@ class vms(object):
         self.db.start_command(cmd)
 
         # Now spawn a separate process to handle the command
-        multiprocessing.Process(target=unknown_command_wrapper, args=(self.args['vms'], cmd))
+        proc = multiprocessing.Process(target=unknown_command_wrapper, name=cmd['command'], args=(self.args['vms'], cmd))
+        proc.start()
+
+        msg = 'command process cmd "{0.name}" started (pid:{0.pid})'
+        syslog.syslog(syslog.LOG_INFO, msg.format(proc))
+
+        self.cmd_processes.append(proc)
 
     def call(self, cmd):
         # pylint: disable=bare-except
@@ -367,7 +393,7 @@ class vms(object):
     Most functions that use the radio will need to check the radio status first
     """
 
-    def sync_flight_data_object(self, cmd):
+    def sync_flight_data_object(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
@@ -384,7 +410,7 @@ class vms(object):
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
-    def sync_flight_data_binary(self, cmd):
+    def sync_flight_data_binary(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
@@ -399,7 +425,7 @@ class vms(object):
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
-    def sync_flight_data(self, cmd):
+    def sync_flight_data(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
@@ -414,7 +440,7 @@ class vms(object):
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
-    def sync_system_messages(self, cmd):
+    def sync_system_messages(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
@@ -429,7 +455,7 @@ class vms(object):
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
-    def sync_recording_sessions(self, cmd):
+    def sync_recording_sessions(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
@@ -439,7 +465,7 @@ class vms(object):
                 if cmd:
                     self.db.complete_commands(cmd, True)
 
-    def sync_command_log_sv_to_ground(self, cmd):
+    def sync_command_log_sv_to_ground(self, cmd=None):
         # sync from sv to ground
         # read from sv db
         # write to ground db
@@ -458,7 +484,7 @@ class vms(object):
                 #    if cmd:
                 #        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
-    def sync_command_log_ground_to_sv(self, cmd):
+    def sync_command_log_ground_to_sv(self, cmd=None):
         # sync from ground to sv
         # run pending commands
         self.linkstar.get_radio_status()

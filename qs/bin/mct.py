@@ -291,7 +291,7 @@ class mct(object):
         # For now parameters are not associated with applications, so just add
         # 100 parameters as placeholders
         params = [ (i, 'param{}'.format(i)) for i in range(1, 100) ]
-        self.cursor.executemany('INSERT INTO paramTable VALUES(?,?,NULL,NULL);', params)
+        self.cursor.executemany('INSERT INTO paramTable VALUES(?,?,NULL,0.0);', params)
 
         # Add the standard domU disks
         self.cursor.executescript('''

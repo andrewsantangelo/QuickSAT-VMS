@@ -281,9 +281,9 @@ class vms_db(object):
     def start_command(self, command):
         stmt = '''
             UPDATE `stepSATdb_Flight`.`Command_Log`
-                SET `Command_Log`.`command_state`=PROCESSING
-                WHERE `Command_Log`.`time_of_command`=%s
-                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=%s
+                SET `Command_Log`.`command_state` = 'Processing'
+                WHERE `Command_Log`.`time_of_command`=%(time)s
+                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=%(session)s
         '''
         with self.lock:
             self.cursor.execute(stmt, command)

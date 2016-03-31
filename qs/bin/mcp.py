@@ -62,6 +62,7 @@ class McpTarget(object):
         Removes the specified files from the /opt/mcp/images/ directory on the
         target board if they are present in that directory.
         """
+        assert type(files) == list
         syslog.syslog(syslog.LOG_INFO, 'MCP remove files: {}'.format(str(files)))
         cur_files = self.sftp.listdir('/opt/mcp/images/')
         syslog.syslog(syslog.LOG_DEBUG, 'files installed on target = {}'.format(str(cur_files)))
@@ -77,6 +78,7 @@ class McpTarget(object):
         Add the specified files to the /opt/mcp/images/ directory on the
         target board if they are not already there.
         """
+        assert type(files) == list
         syslog.syslog(syslog.LOG_INFO, 'MCP adding files: {}'.format(str(files)))
         cur_files = self.sftp.listdir('/opt/mcp/images/')
         syslog.syslog(syslog.LOG_DEBUG, 'files installed on target = {}'.format(str(cur_files)))
@@ -232,12 +234,13 @@ class McpTarget(object):
 
         syslog.syslog(syslog.LOG_DEBUG, 'Apps for MCT = {}'.format(mctapps))
 
-        # Send the specified file(s) to the target board.
+        # Send the specified file(s) to the target board if it isn't already
+        # installed (for another VM).
         #
         # NOTE: Currently this consists of only the executable/kernel for
         # the new VM, but it may eventually include additional disk images.
-        files = new_app['name']
-        self.add_files(files)
+        mct_app_files = [a['name'] for a in mctapps]
+        self.add_files(mct_app_files)
 
         # Construct the new MCT
         newmct = mct.mct()
@@ -297,14 +300,15 @@ def process(db, cmd, data):
     MCP functions.
     """
     # pylint: disable=too-many-branches,global-statement,star-args,protected-access,too-many-statements
+    syslog.syslog(syslog.LOG_INFO, 'MCP processing command {}:{}'.format(cmd, data))
 
     global MCP
     if not MCP:
         # Retrieve the address of the board that MCP is running on
-        data = db.get_board_connection_data(name='mcp')
+        conn_info = db.get_board_connection_data(name='mcp')
 
-        if data['method'] == 'ETHERNET':
-            addr = data['address'].split(':', 2)
+        if conn_info['method'] == 'ETHERNET':
+            addr = conn_info['address'].split(':', 2)
 
             # If the port was not specified in the address, set it to the
             # default (22).
@@ -316,12 +320,12 @@ def process(db, cmd, data):
             config = {
                 'address': addr[0],
                 'port': port,
-                'username': data['username'],
-                'password': data['password'],
+                'username': conn_info['username'],
+                'password': conn_info['password'],
             }
             MCP = McpTarget(**config)
         else:
-            msg = 'Unsupported mcp connection method: {}'.format(data['method'])
+            msg = 'Unsupported mcp connection method: {}'.format(conn_info['method'])
             db._log_msg(msg)
             return False
 
@@ -345,8 +349,15 @@ def process(db, cmd, data):
         # Drop any dom0 applications from the list
         apps = [a for a in apps if a['vm'] > 0]
 
-        new_app = [a for a in apps if a['id'] == data][0]
-        result = MCP.add_vm(new_app, apps, 'quicksat1')
+        # The app ID could be an integer or string, coerce both values to
+        # strings to compare
+        new_app = [a for a in apps if str(a['id']) == str(data)]
+        if len(new_app) != 1:
+            msg = 'App {} not found in list: {}'.format(data, apps)
+            raise Exception(msg)
+        else:
+            result = MCP.add_vm(new_app[0], apps, 'quicksat1')
+
         if result:
             # Update the state of the applications added to indicate that it
             # has been added to the target borad (HOST):
@@ -365,8 +376,8 @@ def process(db, cmd, data):
             #   300-399: Error codes; VM and application are on the host.
             #
             status = 'On Host - VM Configured'
-            msg = 'Success - VM/App "{}" installed'.format(new_app['part'])
-            db.set_application_state(new_app, 195, status, msg)
+            msg = 'Success - VM/App "{}" installed'.format(new_app[0]['part'])
+            db.set_application_state(new_app[0], 195, status, msg)
 
     elif cmd == 'remove_vmapp':
         # get a list of all apps on the same board as mcp
@@ -375,8 +386,14 @@ def process(db, cmd, data):
         # Drop any dom0 applications from the list
         apps = [a for a in apps if a['vm'] > 0]
 
-        remove_app = [a for a in apps if a['id'] == data][0]
-        result = MCP.remove_vm(remove_app, apps, 'quicksat1')
+        # The app ID could be an integer or string, coerce both values to
+        # strings to compare
+        remove_app = [a for a in apps if str(a['id']) == str(data)]
+        if len(remove_app) != 1:
+            msg = 'App {} not found in list: {}'.format(data, apps)
+            raise Exception(msg)
+        else:
+            result = MCP.remove_vm(remove_app[0], apps, 'quicksat1')
 
         if result:
             # Update the state of the applications added to indicate that it
@@ -396,8 +413,8 @@ def process(db, cmd, data):
             #   300-399: Error codes; VM and application are on the host.
             #
             status = 'GATEWAY Storage'
-            msg = 'Success - VM/App "{}" removed from Host'.format(new_app['part'])
-            db.set_application_state(new_app, 80, status, msg)
+            msg = 'Success - VM/App "{}" removed from Host'.format(remove_app[0]['part'])
+            db.set_application_state(remove_app[0], 80, status, msg)
     elif cmd == 'pause_vm':
         # Find the name of the VM that should be paused
         name = db.get_app_info(ident=data)['name']
