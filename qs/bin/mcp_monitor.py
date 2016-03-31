@@ -55,7 +55,8 @@ def get_mcp_status(address, port, username, password):
         err = 'MCP status check failed: {}'.format(traceback.format_exception(*sys.exc_info()))
         syslog.syslog(syslog.LOG_ERR, err)
         exit_status = 1
-        out_data = err
+        out_data = None
+        err_data = err
 
     ssh.close()
 
