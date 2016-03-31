@@ -39,11 +39,12 @@ def get_mcp_status(address, port, username, password):
         'timeout': 1.0,
         'banner_timeout': 2.0,
     }
-    ssh.connect(**ssh_config)
 
-    # Run the status command to check on MCP
     # pylint: disable=bare-except
     try:
+        ssh.connect(**ssh_config)
+
+        # Run the status command to check on MCP
         _, out, err = ssh.exec_command('service mcp status')
         exit_status = out.channel.recv_exit_status()
         out_data = out.channel.recv(1000)
@@ -51,7 +52,7 @@ def get_mcp_status(address, port, username, password):
     except KeyboardInterrupt as error:
         raise error
     except:
-        err = 'MCP status failed: {}'.format(traceback.format_exception(*sys.exc_info()))
+        err = 'MCP status check failed: {}'.format(traceback.format_exception(*sys.exc_info()))
         syslog.syslog(syslog.LOG_ERR, err)
         exit_status = 1
         out_data = err
