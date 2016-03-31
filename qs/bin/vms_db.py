@@ -127,11 +127,11 @@ class vms_db(object):
                     `Virtual_Machines`.`connection_method` AS method,
                     `Virtual_Machines`.`connection_address` AS address,
                     `Virtual_Machines`.`connection_username` AS username,
-                    `Virtual_Machines`.`connection_password` AS password,
+                    `Virtual_Machines`.`connection_password` AS password
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
                 ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
-                WHERE `System_Applications`.`{}`={}
+                WHERE `System_Applications`.`{}`='{}'
         '''
         if ident:
             stmt.format('application_id', ident)
@@ -166,7 +166,7 @@ class vms_db(object):
                 FROM `stepSATdb_Flight`.`System_Applications`
                 LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
                 ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
-                WHERE `System_Applications`.`{}`={}
+                WHERE `System_Applications`.`{}`='{}'
         '''
         if ident:
             stmt.format('application_id', ident)
@@ -214,7 +214,7 @@ class vms_db(object):
                         FROM `stepSATdb_Flight`.`System_Applications`
                         LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
                         ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
-                        WHERE `System_Applications`.`{}` = {}) as match
+                        WHERE `System_Applications`.`{}` = '{}') as match
                 ON `Virtual_Machines`.`vm_board_part_key` = `match`.`key`
         '''
         if ident:
