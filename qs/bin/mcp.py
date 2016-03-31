@@ -214,7 +214,7 @@ class McpTarget(object):
             # stdout into an exception message
             raise Exception(status, stdout.channel.recv(1000), stderr.channel.recv(1000))
 
-    def add_vm(self, new_app, apps):
+    def add_vm(self, new_app, apps, db_password):
         """
         Adds a VM to the operating configuration of a target.  The following
         steps are performed to archive this:
@@ -241,7 +241,7 @@ class McpTarget(object):
 
         # Construct the new MCT
         newmct = mct.mct()
-        newmct.addapps(mctapps, self.address, None)
+        newmct.addapps(mctapps, self.address, None, db_password)
         newmct.close()
 
         # Restart MCP
@@ -249,7 +249,7 @@ class McpTarget(object):
 
         return True
 
-    def remove_vm(self, remove_app, apps):
+    def remove_vm(self, remove_app, apps, db_password):
         """
         Removes a VM from the operating configuration of a target.  The
         following steps are performed to archive this:
@@ -281,7 +281,7 @@ class McpTarget(object):
 
         # Construct the new MCT
         newmct = mct.mct()
-        newmct.addapps(mctapps, self.address, None)
+        newmct.addapps(mctapps, self.address, None, db_password)
         newmct.close()
 
         # Restart MCP
@@ -346,7 +346,7 @@ def process(db, cmd, data):
         apps = [a for a in apps if a['vm'] > 0]
 
         new_app = [a for a in apps if a['id'] == data][0]
-        result = MCP.add_vm(new_app, apps)
+        result = MCP.add_vm(new_app, apps, 'quicksat1')
         if result:
             # Update the state of the applications added to indicate that it
             # has been added to the target borad (HOST):
@@ -376,7 +376,7 @@ def process(db, cmd, data):
         apps = [a for a in apps if a['vm'] > 0]
 
         remove_app = [a for a in apps if a['id'] == data][0]
-        result = MCP.remove_vm(remove_app, apps)
+        result = MCP.remove_vm(remove_app, apps, 'quicksat1')
 
         if result:
             # Update the state of the applications added to indicate that it
