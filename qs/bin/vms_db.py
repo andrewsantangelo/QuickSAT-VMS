@@ -281,39 +281,6 @@ class vms_db(object):
             syslog.syslog(syslog.LOG_DEBUG, 'Retrieved pending commands "{}"'.format(str(commands)))
         return commands
 
-    def filter_pending_commands(self, cmd):
-        stmt = '''
-            SELECT `Command_Log`.`time_of_command` AS time,
-                    `Command_Log`.`Recording_Sessions_recording_session_id` AS id,
-                    `Command_Log`.`command_data` AS data,
-                    `Command_Log`.`Recording_Sessions_recording_session_id` AS session,
-                    `Command_Log`.`source` AS source ,
-                    `Command_Log`.`priority` AS priority
-                FROM `stepSATdb_Flight`.`Command_Log`
-                WHERE `Command_Log`.`command`=%s
-                    AND `Command_Log`.`command_state`='Pending'
-                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions`
-                    )
-        '''
-
-        with self.lock:
-            self.cursor.execute(stmt, (cmd,))
-            commands = self.cursor.fetchall()
-
-        syslog.syslog(syslog.LOG_DEBUG, 'Retrieved pending "{}" commands "{}"'.format(cmd, str(commands)))
-        return commands
-
-    def pending_remove_commands(self):
-        return self.filter_pending_commands('REMOVE')
-
-    def pending_add_commands(self):
-        return self.filter_pending_commands('ADD')
-
-    def pending_stop_commands(self):
-        return self.filter_pending_commands('STOP')
-
     def start_command(self, command):
         stmt = '''
             UPDATE `stepSATdb_Flight`.`Command_Log`
