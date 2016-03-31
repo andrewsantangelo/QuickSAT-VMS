@@ -296,15 +296,36 @@ def process(db, cmd, data):
     The function required for the vms class to call this one to handle custom
     MCP functions.
     """
-    # pylint: disable=too-many-branches,global-statement,star-args,protected-access
+    # pylint: disable=too-many-branches,global-statement,star-args,protected-access,too-many-statements
 
     global MCP
     if not MCP:
         # Retrieve the address of the board that MCP is running on
-        config = db.get_board_connection_data(name='mcp')
-        MCP = McpTarget(**config)
+        data = db.get_board_connection_data(name='mcp')
 
-    # Connect to the MCP Target
+        if data['method'] == 'ETHERNET':
+            addr = data['address'].split(':', 2)
+
+            # If the port was not specified in the address, set it to the
+            # default (22).
+            if len(addr) == 1:
+                port = 22
+            else:
+                port = addr[1]
+
+            config = {
+                'address': addr[0],
+                'port': port,
+                'username': data['username'],
+                'password': data['password'],
+            }
+            MCP = McpTarget(**config)
+        else:
+            msg = 'Unsupported mcp connection method: {}'.format(data['method'])
+            db._log_msg(msg)
+            return False
+
+    # Connect to the MCP Target if the connection method is recognized
     MCP.connect()
 
     # Now process the command
