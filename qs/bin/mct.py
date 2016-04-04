@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+"""
+A module that handles generating a new configuration file for the MCP target.
+"""
 
 import sqlite3
 import shutil
@@ -11,8 +14,15 @@ import socket
 import fcntl
 import struct
 
+# Disable some pylint warnings that I don't care about
+# pylint: disable=line-too-long,fixme,invalid-name
+
+
 def get_ip_address(ifname):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    """
+    Retreive the IP address of a specified network adapter.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # Use the SIOCGIFADDR ioctl (0x8915) to get the IP address of the socket
     # that was just created: http://linux.die.net/man/7/netdevice
@@ -21,16 +31,20 @@ def get_ip_address(ifname):
     # The ioctl() parameter is the ifreq structure, which is 256 bytes in size,
     # the interface name is placed in the "ifr_name" field, which is in the
     # first 16 bytes of the struct.
-    r = fcntl.ioctl(s.fileno(), SIOCGIFADDR, struct.pack('256s', ifname[:15]))
+    result = fcntl.ioctl(sock.fileno(), SIOCGIFADDR, struct.pack('256s', ifname[:15]))
 
     # The returned buffer is the ifreq structure, extract the ip address from
     # the ifr_addr field (bytes 20-24 contain the ip address), turn the bytes
     # a normal IPv4 address string.
-    return socket.inet_ntoa(r[20:24])
+    return socket.inet_ntoa(result[20:24])
+
 
 def get_gateway_ip():
-    f = open('/proc/net/route', 'r')
-    for line in f:
+    """
+    Returns the default network gateway IP address and network adapter.
+    """
+    routes = open('/proc/net/route', 'r')
+    for line in routes:
         fields = line.strip().split()
         if fields:
             if fields[2] != 'Gateway' and fields[2] != '00000000':
@@ -39,17 +53,25 @@ def get_gateway_ip():
     # just return a network values
     return ('eth0', '192.268.0.1')
 
-def get_network_info():
-    (iface, gw) = get_gateway_ip()
-    ip = get_ip_address(iface)
-    return (iface, gw, ip)
 
-class mct(object):
+def get_network_info():
+    """
+    Returns the default network interface, gateway and IP address.
+    """
+    (iface, gate) = get_gateway_ip()
+    addr = get_ip_address(iface)
+    return (iface, gate, addr)
+
+
+class Mct(object):
+    """
+    A class to manage the operations necessary to create an MCT configuration file.
+    """
     def __init__(self):
         self.working_dir = tempfile.mkdtemp()
 
-	self.db = None
-	self.cursor = None
+        self.db = None
+        self.cursor = None
         self.open()
 
         # the MCT that was just opened is (should be) a blank database
@@ -290,7 +312,7 @@ class mct(object):
 
         # For now parameters are not associated with applications, so just add
         # 100 parameters as placeholders
-        params = [ (i, 'param{}'.format(i)) for i in range(1, 100) ]
+        params = [(i, 'param{}'.format(i)) for i in range(1, 100)]
         self.cursor.executemany('INSERT INTO paramTable VALUES(?,?,NULL,0.0);', params)
 
         # Add the standard domU disks
@@ -314,6 +336,9 @@ class mct(object):
             shutil.rmtree(self.working_dir)
 
     def open(self):
+        """
+        Opens a new MCT SQLite configuration file.
+        """
         if not self.db:
             # the python sqlite library does not implement the backup APIs, so
             # we create the new MCT in a file rather than exporting an
@@ -325,11 +350,17 @@ class mct(object):
             self.cursor = self.db.cursor()
 
     def commit(self):
+        """
+        Commits the changes to the currently opened MCT file.
+        """
         if self.db:
             self.db.commit()
 
     def close(self):
-	self.commit()
+        """
+        Closes an MCT SQLite configuration file.
+        """
+        self.commit()
         if self.db:
             self.db.close()
             self.db = None
@@ -338,9 +369,15 @@ class mct(object):
             self.cursor = None
 
     def path(self):
+        """
+        Returns the path to the current MCT file.
+        """
         return os.path.join(self.working_dir, 'mct.db')
 
     def addapps(self, apps, dom0_ip, domu_ip_range, db_password):
+        """
+        Adds one or more applications to the current MCT configuration file.
+        """
         # The apps parameter is an iterable list of application configurations
         # that contains the following values:
         #   - id
@@ -374,17 +411,17 @@ class mct(object):
         #
         # If a domu IP range is specified, these are the extra boot params that
         # should be specified:
-        #   extra = 'console=hvc0 xencons=tty root=/dev/xvda 
+        #   extra = 'console=hvc0 xencons=tty root=/dev/xvda
         #       domu_start=/opt/mcp/images/<name> domu_server=<bbb ip> domu_param=<param>
         #       ip=<domu prefix>.<domu IP range>+<id> gw=<domu prefix.1> netmask=255.255.255.0'
         for i in range(len(apps)):
-            #apps[i]['kernel'] = '{}.gz'.format(apps[i]['name'])
+            # apps[i]['kernel'] = '{}.gz'.format(apps[i]['name'])
             apps[i]['kernel'] = '/root/zImage'
             apps[i]['memory'] = 128
             apps[i]['ramdisk'] = None
 
             # Set the domU extra boot params
-            #apps[i]['extra'] = 'console=hvc0 xencons=tty root=/dev/xvda domu_start=/opt/mcp/images/{} domu_server={} domu_param={}'.format(apps[i]['name'], vms_ip_addr, apps[i]['param'])
+            # apps[i]['extra'] = 'console=hvc0 xencons=tty root=/dev/xvda domu_start=/opt/mcp/images/{} domu_server={} domu_param={}'.format(apps[i]['name'], vms_ip_addr, apps[i]['param'])
             apps[i]['extra'] = 'console=hvc0 xencons=tty root=/dev/xvda --password={} --app={} --address={}'.format(db_password, apps[i]['id'], vms_ip_addr)
             if domu_ip_range:
                 apps[i]['extra'] += ' ip={}.{} gw={} netmask=255.255.255.0'.format(domu_ip_prefix, int(domu_ip_range) + int(apps[i]['vm']), gateway_ip)

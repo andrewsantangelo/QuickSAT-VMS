@@ -268,7 +268,7 @@ class McpTarget(object):
         self.add_files(mct_app_files)
 
         # Construct the new MCT
-        newmct = mct.mct()
+        newmct = mct.Mct()
         newmct.addapps(mctapps, self.address, None, db_password)
         newmct.close()
 
@@ -306,7 +306,7 @@ class McpTarget(object):
         self.remove_files(files)
 
         # Construct the new MCT
-        newmct = mct.mct()
+        newmct = mct.Mct()
         newmct.addapps(mctapps, self.address, None, db_password)
         newmct.close()
 
