@@ -304,7 +304,6 @@ class Mct(object):
                 INSERT INTO stateTable VALUES(2,'halted',2,2,1);
                 INSERT INTO ruleTable VALUES(1,'move to halted state',3600.0,'1',3,2);
                 INSERT INTO ruleTable VALUES(2,'monitor domain state',60.0,'1',9,0);
-                INSERT INTO stateRuleLink VALUES(1,1);
                 INSERT INTO stateRuleLink VALUES(1,2);
                 INSERT INTO stateRuleLink VALUES(2,2);
                 COMMIT;
