@@ -2,6 +2,8 @@
 """
 Module that will periodically check the status of MCP on the target board
 (HOST) and report that status back to the QS/VMS database.
+
+Copyright (c) 2016, DornerWorks, Ltd.
 """
 
 import argparse

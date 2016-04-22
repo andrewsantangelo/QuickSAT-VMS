@@ -2,10 +2,13 @@
 """
 A module that handles processing the commands to manipulate the target (HOST)
 computer.
+
+Copyright (c) 2016, DornerWorks, Ltd.
 """
 
 import syslog
 import os.path
+import re
 
 # Easiest way to do sftp, install with
 #   $ pip install paramiko
@@ -20,6 +23,26 @@ import mct
 
 # Indicate that there is no MCP connection by default
 MCP = None
+
+
+def app_file_name(app):
+    """
+    A simple utility that determines the name of the file that is required to
+    run the application.
+    """
+    linux_regex = re.compile(r'(ubuntu|linux|debian)', re.IGNORECASE)
+    mirage_regex = re.compile(r'(mirage)', re.IGNORECASE)
+    if linux_regex.match(app['vm_os']):
+        # For linux applications, there will be a small read-only disk image
+        # to transfer
+        return '{}.img'.format(app['name'])
+    elif mirage_regex.match(app['vm_os']):
+        # For mirage applications the kernel must be transfered, and it is
+        # expected to be named mir-<app>.xen
+        return 'mir-{}.xen'.format(app['name'])
+    else:
+        msg = 'unsupported OS type: {}'.format(app['vm_os'])
+        raise NotImplementedError(msg)
 
 
 class McpTarget(object):
@@ -93,15 +116,6 @@ class McpTarget(object):
                 syslog.syslog(syslog.LOG_DEBUG, 'Transferring "{}" to target "{}"'.format(src_path, dest_path))
                 self.sftp.put(src_path, dest_path)
 
-                # ensure the new file is executable on the target
-                _, stdout, stderr = self.ssh.exec_command('chmod +x ' + dest_path)
-                status = stdout.channel.recv_exit_status()
-                if status != 0:
-                    # If the command did not execute correctly, place the
-                    # stderr and stdout into an exception message
-                    exp = (status, stdout.channel.recv(1000), stderr.channel.recv(1000))
-                    raise Exception(exp)
-
                 # force the target file systems to sync to ensure that any files
                 # written or removed are written through to the disk
                 _, stdout, stderr = self.ssh.exec_command('sync')
@@ -118,11 +132,13 @@ class McpTarget(object):
         the MCP service to reload the configuration.
         """
         syslog.syslog(syslog.LOG_INFO, 'Reloading MCP')
-        # Send the updated MCT
+        # Send the updated MCT, place this in the /opt/mcp/ staging area
+        # first, the reload command will cause it to be copied to the /etc/mcp/
+        # directory.
         self.sftp.put(mctpath, '/opt/mcp/mct.db')
 
         # run the MCP prep script on the MCP target
-        _, stdout, stderr = self.ssh.exec_command('/opt/mcp/bin/mcpprep --mode=mct --reload /opt/mcp/mct.db')
+        _, stdout, stderr = self.ssh.exec_command('sudo service mcp reload')
         status = stdout.channel.recv_exit_status()
         if status != 0:
             # If the command did not execute correctly, place the stderr and
@@ -241,7 +257,7 @@ class McpTarget(object):
 
         return True
 
-    def add_vm(self, new_app, apps, db_password):
+    def add_app(self, new_app, apps):
         """
         Adds a VM to the operating configuration of a target.  The following
         steps are performed to archive this:
@@ -251,7 +267,7 @@ class McpTarget(object):
         3. Send the new MCT to the target board
         4. Send a command to cause MCP to reload it's configuration
         """
-        syslog.syslog(syslog.LOG_DEBUG, 'adding VM: {}'.format(new_app['id']))
+        syslog.syslog(syslog.LOG_DEBUG, 'adding app: {}'.format(new_app['id']))
 
         # Create a new MCT with all apps currently on the target board
         # (state > 100), and the app being added.
@@ -259,23 +275,36 @@ class McpTarget(object):
 
         syslog.syslog(syslog.LOG_DEBUG, 'Apps for MCT = {}'.format(mctapps))
 
+        # Get a list of the domains that need to be defined.
+        dom_dict = {}
+        for app in mctapps:
+            if app['vm'] not in dom_dict:
+                dom_dict[app['vm']] = {
+                    'id': app['vm'],
+                    'os': app['vm_os'],
+                    'name': app['part'],
+                    'app': app['name']
+                }
+        doms = [d for d in dom_dict.values()]
+
         # Send the specified file(s) to the target board if it isn't already
         # installed (for another VM).
         #
         # NOTE: Currently this consists of only the executable/kernel for
         # the new VM, but it may eventually include additional disk images.
-        mct_app_files = [a['name'] for a in mctapps]
+        mct_app_files = [app_file_name(a) for a in mctapps]
         self.add_files(mct_app_files)
 
         # Construct the new MCT
         newmct = mct.Mct()
-        newmct.addapps(mctapps, self.address, None, db_password)
+        newmct.adddomains(doms)
+        newmct.addapps(mctapps)
         newmct.close()
 
         # Restart MCP
         return self.reload(newmct.path())
 
-    def remove_vm(self, remove_app, apps, db_password):
+    def remove_app(self, remove_app, apps):
         """
         Removes a VM from the operating configuration of a target.  The
         following steps are performed to archive this:
@@ -286,7 +315,7 @@ class McpTarget(object):
         3. Send the new MCT to the target board
         4. Send a command to cause MCP to reload it's configuration
         """
-        syslog.syslog(syslog.LOG_DEBUG, 'removing VM: {}'.format(remove_app['id']))
+        syslog.syslog(syslog.LOG_DEBUG, 'removing app: {}'.format(remove_app['id']))
 
         # Create a new MCT with all apps currently on the target board
         # (state > 100), Except for the app being added.
@@ -294,20 +323,33 @@ class McpTarget(object):
 
         syslog.syslog(syslog.LOG_DEBUG, 'Apps for MCT = {}'.format(mctapps))
 
+        # Get a list of the domains that need to be defined.
+        dom_dict = {}
+        for app in mctapps:
+            if app['vm'] not in dom_dict:
+                dom_dict[app['vm']] = {
+                    'id': app['vm'],
+                    'os': app['vm_os'],
+                    'name': app['part'],
+                    'app': app['name']
+                }
+        doms = [d for d in dom_dict.values()]
+
         # Identify the name of the files that should remain on the target.
-        mct_app_files = [a['name'] for a in mctapps]
+        mct_app_files = [app_file_name(a) for a in mctapps]
 
         # Remove the specified file(s) from the target board, but only if
         # they are not required by a VM that is still running on the target.
         #
         # NOTE: Currently this consists of only the executable/kernel for
         # the new VM, but it may eventually include additional disk images.
-        files = [a for a in [remove_app['name']] if a not in mct_app_files]
+        files = [a for a in [app_file_name(remove_app)] if a not in mct_app_files]
         self.remove_files(files)
 
         # Construct the new MCT
         newmct = mct.Mct()
-        newmct.addapps(mctapps, self.address, None, db_password)
+        newmct.adddomains(doms)
+        newmct.addapps(mctapps)
         newmct.close()
 
         # Restart MCP
@@ -377,7 +419,7 @@ def process(db, cmd, data):
             msg = 'App {} not found in list: {}'.format(data, apps)
             raise Exception(msg)
         else:
-            result = MCP.add_vm(new_app[0], apps, 'quicksat1')
+            result = MCP.add_app(new_app[0], apps)
 
         if result:
             # Update the state of the applications added to indicate that it
@@ -414,7 +456,7 @@ def process(db, cmd, data):
             msg = 'App {} not found in list: {}'.format(data, apps)
             raise Exception(msg)
         else:
-            result = MCP.remove_vm(remove_app[0], apps, 'quicksat1')
+            result = MCP.remove_app(remove_app[0], apps)
 
         if result:
             # Update the state of the applications added to indicate that it
