@@ -9,6 +9,8 @@ Copyright (c) 2016, DornerWorks, Ltd.
 import syslog
 import os.path
 import re
+import multiprocessing
+import time
 
 # Easiest way to do sftp, install with
 #   $ pip install paramiko
@@ -19,7 +21,7 @@ import paramiko
 import mct
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme
+# pylint: disable=line-too-long,fixme,unidiomatic-typecheck
 
 # Indicate that there is no MCP connection by default
 MCP = None
@@ -50,6 +52,8 @@ class McpTarget(object):
     A class that handles the MCP commands
     """
     def __init__(self, address, port, username, password):
+        self.lock = multiprocessing.Lock()
+
         self.address = address
         self.port = port
         self.username = username
@@ -72,10 +76,24 @@ class McpTarget(object):
             self.sftp.close()
             self.ssh.close()
 
+        # Wait some time to ensure that MCP has had enough time to complete
+        # handling the previous command (such as an MCT reload) before exiting
+        # and releasing the lock.
+        #
+        # TODO: Eventually have MCP create a lock file during reload, and
+        # create a "reload_complete" target in the service script so that we
+        # can be sure that this process isn't exiting until the MCT reload has
+        # been completed.
+        time.sleep(10.0)
+
+        self.lock.release()
+
     def connect(self):
         """
         Opens SSH/SFTP connections to the target board.
         """
+        self.lock.acquire()
+
         if not self.ssh.get_transport() or not self.ssh.get_transport().is_active():
             self.ssh.connect(self.address, port=self.port, username=self.username, password=self.password)
             self.sftp = self.ssh.open_sftp()
@@ -362,7 +380,7 @@ def process(db, cmd, data):
     The function required for the vms class to call this one to handle custom
     MCP functions.
     """
-    # pylint: disable=too-many-branches,global-statement,star-args,protected-access,too-many-statements
+    # pylint: disable=too-many-branches,global-statement,protected-access,too-many-statements
     syslog.syslog(syslog.LOG_INFO, 'MCP processing command {}:{}'.format(cmd, data))
 
     global MCP
