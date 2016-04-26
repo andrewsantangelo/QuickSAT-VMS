@@ -192,14 +192,14 @@ class Mct(object):
             #   sine(2)/cosine  = float (1)
             apps[i]['param_id'] = apps[i]['param']
             apps[i]['param_name'] = apps[i]['name']
-            if apps[i]['type'] == 'INTEGER':
+            if apps[i]['param_type'] == 'INTEGER':
                 apps[i]['param_type'] = 0
                 apps[i]['param_size'] = 4
-            elif apps[i]['type'] == 'REAL':
+            elif apps[i]['param_type'] == 'REAL':
                 apps[i]['param_type'] = 1
                 apps[i]['param_size'] = 8
             else:
-                msg = 'missing parameter type information for app: {}, param: {}'.format(apps[i]['name'], apps[i]['type'])
+                msg = 'missing parameter type information for app: {}, param: {}'.format(apps[i]['name'], apps[i]['param_type'])
                 raise NotImplementedError(msg)
 
         linux_apps = [a for a in apps if self.linux_regex.match(a['vm_os'])]
