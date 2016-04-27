@@ -21,7 +21,7 @@ import paramiko
 import mct
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme,unidiomatic-typecheck
+# pylint: disable=line-too-long,fixme
 
 # Indicate that there is no MCP connection by default
 MCP = None
@@ -103,7 +103,7 @@ class McpTarget(object):
         Removes the specified files from the /opt/mcp/images/ directory on the
         target board if they are present in that directory.
         """
-        assert type(files) == list
+        assert isinstance(files, list)
         syslog.syslog(syslog.LOG_INFO, 'MCP remove files: {}'.format(str(files)))
         cur_files = self.sftp.listdir('/opt/mcp/images/')
         syslog.syslog(syslog.LOG_DEBUG, 'files installed on target = {}'.format(str(cur_files)))
@@ -119,7 +119,7 @@ class McpTarget(object):
         Add the specified files to the /opt/mcp/images/ directory on the
         target board if they are not already there.
         """
-        assert type(files) == list
+        assert isinstance(files, list)
         syslog.syslog(syslog.LOG_INFO, 'MCP adding files: {}'.format(str(files)))
         cur_files = self.sftp.listdir('/opt/mcp/images/')
         syslog.syslog(syslog.LOG_DEBUG, 'files installed on target = {}'.format(str(cur_files)))
