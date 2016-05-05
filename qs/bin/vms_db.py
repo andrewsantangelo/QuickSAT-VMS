@@ -288,9 +288,13 @@ class vms_db(object):
         return commands
 
     def start_command(self, command):
+        # Update the "pushed_to_ground" flag to let the "Processing" state be
+        # updated on the ground if the command log is synced before this
+        # command completes.
         stmt = '''
             UPDATE `stepSATdb_Flight`.`Command_Log`
-                SET `Command_Log`.`command_state` = 'Processing'
+                SET `Command_Log`.`command_state` = 'Processing',
+                    `Command_Log`.`pushed_to_ground` = 0
                 WHERE `Command_Log`.`time_of_command`=%(time)s
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=%(session)s
         '''
@@ -328,10 +332,12 @@ class vms_db(object):
             update_cmds = [(state, c['time'], c['session']) for c in commands]
         syslog.syslog(syslog.LOG_DEBUG, 'Updating stepSATdb_Flight.Command_Log with commands "{}"'.format(str(update_cmds)))
 
-        # Identify if there are any pending "ADD" commands
+        # Now that the command is complete, update the "pushed_to_ground" flag
+        # to let the final commmad state be sent to the ground.
         stmt = '''
             UPDATE `stepSATdb_Flight`.`Command_Log`
-                SET `Command_Log`.`command_state`=%s
+                SET `Command_Log`.`command_state`=%s,
+                    `Command_Log`.`pushed_to_ground` = 0
                 WHERE `Command_Log`.`time_of_command`=%s
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=%s
         '''
