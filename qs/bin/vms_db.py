@@ -349,7 +349,7 @@ class vms_db(object):
         self._log_msg(log)
 
     def set_application_state(self, app, state, status, msg):
-        syslog.syslog(syslog.LOG_DEBUG, 'Updating app status "{}"/{}/{}/{}'.format(str(app), state, status, msg))
+        # syslog.syslog(syslog.LOG_DEBUG, 'Updating app status "{}"/{}/{}/{}'.format(str(app), state, status, msg))
         stmt = '''
             UPDATE `stepSATdb_Flight`.`System_Applications`
                 SET `System_Applications`.`application_state`=%(state)s,
