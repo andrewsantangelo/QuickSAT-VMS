@@ -70,6 +70,12 @@ class VmsFile(object):
         # if it fails, wait 1 minute and try again.  If the connection to the
         # ground drops while this is running, we'll just have to keep trying.
         if info:
+            # If there is no file defined, raise an exception now and don't
+            # attempt the upload.
+            if not info['application_filename']:
+                msg = 'filename not specified for application {}'.format(info)
+                raise Exception(msg)
+
             options = {
                 'host': self.db_args['server'],
                 'username': self.db_args['fileserver_username'],
