@@ -140,6 +140,8 @@ def process(db, cmd, data):
             # if file was retrieved successfully, and the get_app() function
             # returned the required database information, insert that info
             # into the DB now.
+            app_info['application_state'] = 80
+            app_info['application_status'] = 'GATEWAY Storage'
             db.add_app(app_info, app_params)
             result = True
         else:
