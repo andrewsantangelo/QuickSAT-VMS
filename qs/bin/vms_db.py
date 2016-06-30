@@ -527,25 +527,37 @@ class vms_db(object):
             selected_server = {
                 'server': all_servers['test_server'],
                 'username': all_servers['test_username'],
-                'password': all_servers['test_password']
+                'password': all_servers['test_password'],
+                'fileserver_username': all_servers['fileserver_username'],
+                'fileserver_password': all_servers['fileserver_password'],
+                'fileserver_pathname': all_servers['fileserver_pathname'],
             }
         elif all_servers['selected_server'] == 'PRIMARY':
             selected_server = {
                 'server': all_servers['primary_server'],
                 'username': all_servers['primary_username'],
-                'password': all_servers['primary_password']
+                'password': all_servers['primary_password'],
+                'fileserver_username': all_servers['fileserver_username'],
+                'fileserver_password': all_servers['fileserver_password'],
+                'fileserver_pathname': all_servers['fileserver_pathname'],
             }
         elif all_servers['selected_server'] == 'ALTERNATE':
             selected_server = {
                 'server': all_servers['alternate_server'],
                 'username': all_servers['alternate_username'],
-                'password': all_servers['alternate_password']
+                'password': all_servers['alternate_password'],
+                'fileserver_username': all_servers['fileserver_username'],
+                'fileserver_password': all_servers['fileserver_password'],
+                'fileserver_pathname': all_servers['fileserver_pathname'],
             }
         elif all_servers['selected_server'] == 'NONE':
             selected_server = {
                 'server': '',
                 'username': '',
-                'password': ''
+                'password': '',
+                'fileserver_username': '',
+                'fileserver_password': '',
+                'fileserver_pathname': '',
             }
         else:
             return None
@@ -705,3 +717,30 @@ class vms_db(object):
 
         connection = results['test_connection']
         return connection
+
+    def add_app(self, info, params):
+        # Generate a list of column names and value placeholders from the
+        # supplied dictionaries
+        app_cols = ','.join([key for key in info.keys()])
+        app_vals = ','.join(['%{}s'.format(key) for key in info.keys()])
+
+        app_stmt = '''
+            INSERT INTO `stepSATdb_Flight`.`System_Applications` ({}) VALUES ({})
+        '''.format(app_cols, app_vals)
+
+        # It's possible that an application may not have parameters
+        if params:
+            param_cols = ','.join([key for key in params[0].keys()])
+            param_vals = ','.join(['%{}s'.format(key) for key in params[0].keys()])
+
+            params_stmt = '''
+                INSERT INTO `stepSATdb_Flight`.`Parameter_ID_Table` ({}) VALUES ({})
+            '''.format(param_cols, param_vals)
+
+        with self.lock:
+            self.cursor.execute(app_stmt, info)
+            self.db.commit()
+
+            if params:
+                self.cursor.executemany(params_stmt, params)
+                self.db.commit()

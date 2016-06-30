@@ -184,3 +184,25 @@ class vms_db_ground(object):
                 with self.lock:
                     self.cursor.execute(stmt,row)
                     self.db.commit()
+
+    def get_application_info(self, app_name, app_id):
+        app_stmt = '''
+            SELECT *
+                FROM `stepSATdb_Flight`.`System_Applications`
+                WHERE `System_Applications`.`application_name`=%s
+                    AND `System_Applications`.`application_id`=%s
+                LIMIT 1
+        '''
+        params_stmt = '''
+            SELECT *
+                FROM `stepSATdb_Flight`.`Parameter_ID_Table`
+                WHERE `Parameter_ID_Table`.`System_Applications_application_id`=%s
+        '''
+        with self.lock:
+            self.cursor.execute(app_stmt, (app_name, app_id))
+            info = self.cursor.fetchone()
+
+            self.cursor.execute(params_stmt, (app_id,))
+            params = self.cursor.fetchall()
+
+        return (info, params)
