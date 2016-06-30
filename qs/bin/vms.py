@@ -165,6 +165,17 @@ class vms(object):
         # Recording_Sessions uses command_syslog_push_rate
         t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, self.db.retrieve_command_syslog_push_rate())
         self.threads.append(t)
+        
+        # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
+        
+        ls_duplex_installed = self.db.ls_duplex_installed_state()
+        
+        # IF the duplex radio is installed, send the duplex information to the ground periodically
+        #if ls_duplex_installed == 1:
+        
+           # Linkstar duplex state pushing uses command_log_rate
+           #t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
+           #self.threads.append(t)
 
     def __del__(self):
         syslog.syslog(syslog.LOG_NOTICE, 'Shutting down')
@@ -502,3 +513,19 @@ class vms(object):
                 #    if cmd:
                 #       self.db.complete_commands(cmd, False,
                 #           traceback.format_exception(*sys.exc_info()))
+
+    def sync_linkstar_duplex_state(self, cmd=None):
+        self.linkstar.get_radio_status()
+        if self.db.check_test_connection():
+            if self.check_db_ground_connection():
+                print "system message test"
+                # pylint: disable=bare-except
+                try:
+                    self.db.sync_selected_db_table('LinkStar_Duplex_State')
+                    self.db_ground.sync_selected_db_table('LinkStar_Duplex_State')
+                    if cmd:
+                        self.db.complete_commands(cmd, True)
+                except:
+                    if cmd:
+                        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+
