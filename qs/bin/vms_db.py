@@ -288,9 +288,13 @@ class vms_db(object):
         return commands
 
     def start_command(self, command):
+        # Update the "pushed_to_ground" flag to let the "Processing" state be
+        # updated on the ground if the command log is synced before this
+        # command completes.
         stmt = '''
             UPDATE `stepSATdb_Flight`.`Command_Log`
-                SET `Command_Log`.`command_state` = 'Processing'
+                SET `Command_Log`.`command_state` = 'Processing',
+                    `Command_Log`.`pushed_to_ground` = 0
                 WHERE `Command_Log`.`time_of_command`=%(time)s
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=%(session)s
         '''
@@ -328,10 +332,12 @@ class vms_db(object):
             update_cmds = [(state, c['time'], c['session']) for c in commands]
         syslog.syslog(syslog.LOG_DEBUG, 'Updating stepSATdb_Flight.Command_Log with commands "{}"'.format(str(update_cmds)))
 
-        # Identify if there are any pending "ADD" commands
+        # Now that the command is complete, update the "pushed_to_ground" flag
+        # to let the final commmad state be sent to the ground.
         stmt = '''
             UPDATE `stepSATdb_Flight`.`Command_Log`
-                SET `Command_Log`.`command_state`=%s
+                SET `Command_Log`.`command_state`=%s,
+                    `Command_Log`.`pushed_to_ground` = 0
                 WHERE `Command_Log`.`time_of_command`=%s
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=%s
         '''
@@ -343,7 +349,7 @@ class vms_db(object):
         self._log_msg(log)
 
     def set_application_state(self, app, state, status, msg):
-        syslog.syslog(syslog.LOG_DEBUG, 'Updating app status "{}"/{}/{}/{}'.format(str(app), state, status, msg))
+        # syslog.syslog(syslog.LOG_DEBUG, 'Updating app status "{}"/{}/{}/{}'.format(str(app), state, status, msg))
         stmt = '''
             UPDATE `stepSATdb_Flight`.`System_Applications`
                 SET `System_Applications`.`application_state`=%(state)s,
@@ -540,25 +546,37 @@ class vms_db(object):
             selected_server = {
                 'server': all_servers['test_server'],
                 'username': all_servers['test_username'],
-                'password': all_servers['test_password']
+                'password': all_servers['test_password'],
+                'fileserver_username': all_servers['fileserver_username'],
+                'fileserver_password': all_servers['fileserver_password'],
+                'fileserver_pathname': all_servers['fileserver_pathname'],
             }
         elif all_servers['selected_server'] == 'PRIMARY':
             selected_server = {
                 'server': all_servers['primary_server'],
                 'username': all_servers['primary_username'],
-                'password': all_servers['primary_password']
+                'password': all_servers['primary_password'],
+                'fileserver_username': all_servers['fileserver_username'],
+                'fileserver_password': all_servers['fileserver_password'],
+                'fileserver_pathname': all_servers['fileserver_pathname'],
             }
         elif all_servers['selected_server'] == 'ALTERNATE':
             selected_server = {
                 'server': all_servers['alternate_server'],
                 'username': all_servers['alternate_username'],
-                'password': all_servers['alternate_password']
+                'password': all_servers['alternate_password'],
+                'fileserver_username': all_servers['fileserver_username'],
+                'fileserver_password': all_servers['fileserver_password'],
+                'fileserver_pathname': all_servers['fileserver_pathname'],
             }
         elif all_servers['selected_server'] == 'NONE':
             selected_server = {
                 'server': '',
                 'username': '',
-                'password': ''
+                'password': '',
+                'fileserver_username': '',
+                'fileserver_password': '',
+                'fileserver_pathname': '',
             }
         else:
             return None
@@ -718,3 +736,30 @@ class vms_db(object):
 
         connection = results['test_connection']
         return connection
+
+    def add_app(self, info, params):
+        # Generate a list of column names and value placeholders from the
+        # supplied dictionaries
+        app_cols = ','.join([key for key in info.keys()])
+        app_vals = ','.join(['%{}s'.format(key) for key in info.keys()])
+
+        app_stmt = '''
+            INSERT INTO `stepSATdb_Flight`.`System_Applications` ({}) VALUES ({})
+        '''.format(app_cols, app_vals)
+
+        # It's possible that an application may not have parameters
+        if params:
+            param_cols = ','.join([key for key in params[0].keys()])
+            param_vals = ','.join(['%{}s'.format(key) for key in params[0].keys()])
+
+            params_stmt = '''
+                INSERT INTO `stepSATdb_Flight`.`Parameter_ID_Table` ({}) VALUES ({})
+            '''.format(param_cols, param_vals)
+
+        with self.lock:
+            self.cursor.execute(app_stmt, info)
+            self.db.commit()
+
+            if params:
+                self.cursor.executemany(params_stmt, params)
+                self.db.commit()

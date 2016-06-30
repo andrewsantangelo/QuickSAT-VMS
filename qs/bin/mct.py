@@ -223,9 +223,6 @@ class Mct(object):
         # Now link the applications to the domains they should run in
         self.cursor.executemany('INSERT INTO appDomainLink VALUES(:vm,:id);', apps)
 
-        # Lastly allow the domains to run in the "operating" state
-        self.cursor.executemany('INSERT INTO appDomainLink VALUES(:vm,:id);', apps)
-
         self.db.commit()
 
         return apps

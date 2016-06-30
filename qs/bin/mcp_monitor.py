@@ -10,7 +10,7 @@ import argparse
 import syslog
 import time
 import sys
-import traceback
+# import traceback
 
 # Easiest way to do sftp, install with
 #   $ pip install paramiko
@@ -21,7 +21,7 @@ import paramiko
 import vms_db
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme,star-args
+# pylint: disable=line-too-long,fixme
 
 
 def get_mcp_status(address, port, username, password):
@@ -54,8 +54,8 @@ def get_mcp_status(address, port, username, password):
     except KeyboardInterrupt as error:
         raise error
     except:
-        err = 'MCP status check failed: {}'.format(traceback.format_exception(*sys.exc_info()))
-        syslog.syslog(syslog.LOG_ERR, err)
+        # err = 'MCP status check failed: {}'.format(traceback.format_exception(*sys.exc_info()))
+        # syslog.syslog(syslog.LOG_ERR, err)
         exit_status = 1
         out_data = None
         err_data = err
@@ -65,7 +65,7 @@ def get_mcp_status(address, port, username, password):
     return (exit_status, out_data, err_data)
 
 if __name__ == '__main__':
-    # pylint: disable=invalid-name,star-args,protected-access
+    # pylint: disable=invalid-name,protected-access
     parser = argparse.ArgumentParser(description='Monitors health of the MCP application')
 
     # QS/VMS parameters
