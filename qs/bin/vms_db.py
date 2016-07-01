@@ -24,7 +24,7 @@ import grp
 import mysql.connector
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments
+# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments,too-many-locals
 #
 # TEMPORARY:
 # pylint: disable=missing-docstring
@@ -683,7 +683,6 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
 
-<<<<<<< Updated upstream
     def sync_system_applications(self):
         if not os.path.exists('/opt/qs/tmp'):
             os.mkdir('/opt/qs/tmp')
@@ -703,15 +702,6 @@ class vms_db(object):
             '''
         with self.lock:
             self.cursor.execute(stmt)
-=======
-        # ---- The time the last sync of the data occurred with the ground ----
-        stmt_write_timesync = '''
-            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
-        '''
-        with self.lock:
-            self.cursor.execute(stmt_write_timesync)
->>>>>>> Stashed changes
 
     def read_command_log(self):
         # Returns the appropriate rows of the sv db
