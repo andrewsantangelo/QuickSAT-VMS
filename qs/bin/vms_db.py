@@ -655,6 +655,14 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt_write_pointer)
 
+        # ---- The time the last sync of the data occurred with the ground ----
+        stmt_write_timesync = '''
+            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
+        '''
+        with self.lock:
+            self.cursor.execute(stmt_write_timesync)
+
     def sync_recording_sessions(self):
         if not os.path.exists('/opt/qs/tmp'):
             os.mkdir('/opt/qs/tmp')
@@ -675,6 +683,7 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
 
+<<<<<<< Updated upstream
     def sync_system_applications(self):
         if not os.path.exists('/opt/qs/tmp'):
             os.mkdir('/opt/qs/tmp')
@@ -694,6 +703,15 @@ class vms_db(object):
             '''
         with self.lock:
             self.cursor.execute(stmt)
+=======
+        # ---- The time the last sync of the data occurred with the ground ----
+        stmt_write_timesync = '''
+            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
+        '''
+        with self.lock:
+            self.cursor.execute(stmt_write_timesync)
+>>>>>>> Stashed changes
 
     def read_command_log(self):
         # Returns the appropriate rows of the sv db
@@ -726,7 +744,6 @@ class vms_db(object):
                     self.db.commit()
 
     def update_sv_command_log(self, commands):
-        # updates relevant row(s) in sv command log
         if commands:
             for row in commands:
                 stmt = '''
