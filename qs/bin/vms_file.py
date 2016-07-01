@@ -159,6 +159,11 @@ def process(db, cmd, data):
         # If we were able to retrieve the application, remove the application
         # from the filesystem.
         if info:
+            # Ensure that the filename is specified before we attempt to
+            # remove it
+            if not info['application_filename']:
+                msg = 'filename not specified for application {}'.format(info)
+                raise Exception(msg)
             os.remove('/opt/qs/input/{}'.format(info['application_filename']))
             # If the file removed successfully, update the application state.
             # The local state will get synced to the ground eventually.
