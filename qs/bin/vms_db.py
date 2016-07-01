@@ -745,6 +745,7 @@ class vms_db(object):
 
         app_stmt = '''
             INSERT INTO `stepSATdb_Flight`.`System_Applications` ({}) VALUES ({})
+                ON DUPLICATE KEY UPDATE
         '''.format(app_cols, app_vals)
 
         # It's possible that an application may not have parameters
@@ -754,6 +755,7 @@ class vms_db(object):
 
             params_stmt = '''
                 INSERT INTO `stepSATdb_Flight`.`Parameter_ID_Table` ({}) VALUES ({})
+                    ON DUPLICATE KEY UPDATE
             '''.format(param_cols, param_vals)
 
         with self.lock:

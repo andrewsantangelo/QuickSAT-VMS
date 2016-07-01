@@ -12,6 +12,7 @@ import subprocess
 import time
 import traceback
 import sys
+import os
 
 import vms_db_ground
 
@@ -55,7 +56,7 @@ class VmsFile(object):
         self.db_ground.close()
         self.lock.release()
 
-    def get_app(self, app_name, app_id):
+    def get_app(self, app_id):
         """
         Retrieves an application and associated data from the VMS ground server.
         """
@@ -63,7 +64,7 @@ class VmsFile(object):
         # First retrieve the application information from the ground server,
         # this way we don't need to reconnect to the ground DB later if the
         # connection drops while retracing the application.
-        (info, params) = self.db_ground.get_application_info(app_name, app_id)
+        (info, params) = self.db_ground.get_application_info(app_id)
 
         # If we were able to retrieve the application information successfully,
         # retrieve the file using rsync.  This may take multiple attempts, so
@@ -140,8 +141,7 @@ def process(db, cmd, data):
     # Now process the command
     cmd = cmd.lower()
     if cmd == 'upload_application':
-        (app_name, app_id) = data.split(',', 2)
-        (app_info, app_params) = VMS_GROUND.get_app(app_name, app_id)
+        (app_info, app_params) = VMS_GROUND.get_app(data)
         if app_info:
             # if file was retrieved successfully, and the get_app() function
             # returned the required database information, insert that info
@@ -154,6 +154,15 @@ def process(db, cmd, data):
             msg = 'Unable to retrieve info from ground server for app: {}'.format(data)
             db._log_msg(msg)
             result = False
+    elif cmd == 'remove_application':
+        info = db.get_app_info(ident=data)
+        # If we were able to retrieve the application, remove the application
+        # from the filesystem.
+        if info:
+            os.remove('/opt/qs/input/{}'.format(info['application_filename']))
+            # If the file removed successfully, update the application state.
+            # The local state will get synced to the ground eventually.
+            db.set_application_state(info, 50, 'On Ground', None)
     else:
         msg = 'Unsupported VMS file command: {}'.format(cmd)
         db._log_msg(msg)
