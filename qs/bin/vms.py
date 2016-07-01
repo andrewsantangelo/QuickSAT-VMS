@@ -171,11 +171,10 @@ class vms(object):
         ls_duplex_installed = self.db.ls_duplex_installed_state()
         
         # IF the duplex radio is installed, send the duplex information to the ground periodically
-        #if ls_duplex_installed == 1:
-        
+        if ls_duplex_installed==1:
            # Linkstar duplex state pushing uses command_log_rate
-           #t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
-           #self.threads.append(t)
+           t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
+           self.threads.append(t)
 
     def __del__(self):
         syslog.syslog(syslog.LOG_NOTICE, 'Shutting down')
@@ -517,8 +516,8 @@ class vms(object):
     def sync_linkstar_duplex_state(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
-            if self.check_db_ground_connection():
-                print "system message test"
+            if self.check_db_ground_connection():     
+                print "sync_linkstar_duplex test"
                 # pylint: disable=bare-except
                 try:
                     self.db.sync_selected_db_table('LinkStar_Duplex_State')

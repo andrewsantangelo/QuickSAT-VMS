@@ -456,8 +456,8 @@ class vms_db(object):
     def retrieve_linkstar_duplex_info(self, column):
         # Get the requested linkstar duplex radio information
         stmt = '''
-            SELECT `LinkStar_Duplex_Info`.`{}`
-                FROM `stepSATdb_Flight`.`LinkStar_Duplex_Info`
+            SELECT `LinkStar_Duplex_Information`.`{}`
+                FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information`
         '''.format(column)
 
         with self.lock:
@@ -501,11 +501,11 @@ class vms_db(object):
             row_recording_session_state['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']
 
             self.cursor.execute('''
-               INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`event_key`, `current_mode`,
+               INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`,
                     `current_flight_phase`, `data_download_push_rate`, `command_poll_rate`, `command_syslog_push_rate`,
                     `ethernet_link_state`, `serial_link_state`, `active_board`, `last_FRNCS_sync`,
                     `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`, `connection_type`, `gateway_ip_address`, `use_wired_link`, `selected_ground_server`, `binary_data_push_rate`, `flight_data_num_records_download`, `flight_data_object_num_records_download`,  `flight_data_binary_num_records_download`,  `command_log_num_records_download`,  `system_messages_num_records_download`,  `sync_to_ground`,  `command_push_rate`) VALUES (
-                     %(event_key)s, %(current_mode)s,
+                     %(state_index)s, %(current_mode)s,
                     %(current_flight_phase)s, %(data_download_push_rate)s, %(command_poll_rate)s, %(command_syslog_push_rate)s,
                     %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s,
                     %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s, %(connection_type)s, %(gateway_ip_address)s, %(use_wired_link)s, %(selected_ground_server)s, %(binary_data_push_rate)s, %(flight_data_num_records_download)s, %(flight_data_object_num_records_download)s, %(flight_data_binary_num_records_download)s, %(command_log_num_records_download)s, %(system_messages_num_records_download)s, %(sync_to_ground)s, %(command_push_rate)s )
@@ -620,7 +620,7 @@ class vms_db(object):
 
         # ----Formulate the statement to write the selected table to the file----
         stmt_data_write = '''
-            SELECT * FROM `stepSATdb_Flight`.`{}` LIMIT {},{} INTO OUTFILE '/opt/qs/tmp/{}.csv'
+            SELECT * FROM `stepSATdb_Flight`.`{}` WHERE event_key>={} LIMIT {} INTO OUTFILE '/opt/qs/tmp/{}.csv'
                FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''.format(selected_table_name, event_key['{}_event_key'.format(string.lower(selected_table_name))], num_records['{}_num_records_download'.format(string.lower(selected_table_name))], selected_table_name)
         with self.lock:
