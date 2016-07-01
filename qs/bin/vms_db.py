@@ -675,6 +675,26 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
 
+    def sync_system_applications(self):
+        if not os.path.exists('/opt/qs/tmp'):
+            os.mkdir('/opt/qs/tmp')
+
+        uid = pwd.getpwnam("mysql").pw_uid
+        gid = grp.getgrnam("mysql").gr_gid
+
+        if not os.stat('/opt/qs/tmp').st_uid == uid:
+            os.chown('/opt/qs/tmp', uid, gid)
+
+        if os.path.exists('/opt/qs/tmp/system_applications.csv'):
+            os.remove('/opt/qs/tmp/system_applications.csv')
+
+        stmt = '''
+            SELECT * FROM `stepSATdb_Flight`.`System_Applications` INTO OUTFILE '/opt/qs/tmp/system_applications.csv'
+               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+            '''
+        with self.lock:
+            self.cursor.execute(stmt)
+
     def read_command_log(self):
         # Returns the appropriate rows of the sv db
         stmt = '''

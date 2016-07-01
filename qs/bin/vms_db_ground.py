@@ -142,6 +142,16 @@ class vms_db_ground(object):
             self.cursor.execute(stmt)
             self.db.commit()
 
+    def sync_system_applications(self):
+        stmt = '''
+            LOAD DATA LOCAL INFILE '/opt/qs/tmp/system_applications.csv'
+                INTO TABLE `stepSATdb_Flight`.`System_Applications` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
+                ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            self.db.commit()
+
     def read_command_log(self):
         # Returns the appropriate row(s) of the ground db
         stmt = '''
