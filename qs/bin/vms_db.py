@@ -561,7 +561,7 @@ class vms_db(object):
                 os.chown('/opt/qs/tmp', uid, gid)
 
             if os.path.exists('/opt/qs/tmp/Recording_Session_State.csv'):
-                os.remove('/opt/qs/tmp/recording_sessions.csv')
+                os.remove('/opt/qs/tmp/Recording_Session_State.csv')
 
             stmt = '''
                 SELECT * FROM `stepSATdb_Flight`.`Recording_Session_State` INTO OUTFILE '/opt/qs/tmp/Recording_Session_State.csv'
