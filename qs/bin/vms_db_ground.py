@@ -142,6 +142,26 @@ class vms_db_ground(object):
             self.cursor.execute(stmt)
             self.db.commit()
 
+    def sync_recording_session_state(self):
+        stmt = '''
+            LOAD DATA LOCAL INFILE '/opt/qs/tmp/Recording_Session_State.csv'
+                INTO TABLE `stepSATdb_Flight`.`Recording_Session_State` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
+                ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            self.db.commit()
+
+    def sync_flight_pointers(self):
+        stmt = '''
+            LOAD DATA LOCAL INFILE '/opt/qs/tmp/Flight_Pointers.csv'
+                INTO TABLE `stepSATdb_Flight`.`Flight_Pointers` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
+                ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            self.db.commit()
+
     def sync_system_applications(self):
         stmt = '''
             LOAD DATA LOCAL INFILE '/opt/qs/tmp/system_applications.csv'

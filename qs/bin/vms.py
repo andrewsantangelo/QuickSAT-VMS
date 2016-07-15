@@ -19,7 +19,7 @@ import ls_comm_flight_stream
 import linkstar
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments
+# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments,star-args
 #
 # TEMPORARY:
 # pylint: disable=missing-docstring
@@ -165,20 +165,16 @@ class vms(object):
         # Recording_Sessions uses command_syslog_push_rate
         t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, self.db.retrieve_command_syslog_push_rate())
         self.threads.append(t)
-
-        # System_Applications uses command_syslog_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_system_applications, self.db.retrieve_command_syslog_push_rate())
-        self.threads.append(t)
-
+        
         # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
-
+        
         ls_duplex_installed = self.db.ls_duplex_installed_state()
-
+        
         # IF the duplex radio is installed, send the duplex information to the ground periodically
-        if ls_duplex_installed == 1:
-            # Linkstar duplex state pushing uses command_log_rate
-            t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
-            self.threads.append(t)
+        if ls_duplex_installed==1:
+           # Linkstar duplex state pushing uses command_log_rate
+           t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
+           self.threads.append(t)
 
     def __del__(self):
         syslog.syslog(syslog.LOG_NOTICE, 'Shutting down')
@@ -342,6 +338,8 @@ class vms(object):
         # pylint: disable=bare-except
         try:
             self.db.increment_session()
+            self.db_ground.sync_recording_session_state()
+            self.db_ground.sync_flight_pointers()
             self.db.complete_commands(cmd, True)
         except KeyboardInterrupt as e:
             raise e
@@ -479,16 +477,6 @@ class vms(object):
                 if cmd:
                     self.db.complete_commands(cmd, True)
 
-    def sync_system_applications(self, cmd=None):
-        self.linkstar.get_radio_status()
-        if self.db.check_test_connection():
-            if self.check_db_ground_connection():
-                print "system applications test"
-                self.db.sync_system_applications()
-                self.db_ground.sync_system_applications()
-                if cmd:
-                    self.db.complete_commands(cmd, True)
-
     def sync_command_log_sv_to_ground(self, cmd=None):
         # sync from sv to ground
         # read from sv db
@@ -530,7 +518,7 @@ class vms(object):
     def sync_linkstar_duplex_state(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
-            if self.check_db_ground_connection():
+            if self.check_db_ground_connection():     
                 print "sync_linkstar_duplex test"
                 # pylint: disable=bare-except
                 try:
@@ -541,3 +529,4 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+

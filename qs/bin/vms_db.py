@@ -504,11 +504,11 @@ class vms_db(object):
                INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`,
                     `current_flight_phase`, `data_download_push_rate`, `command_poll_rate`, `command_syslog_push_rate`,
                     `ethernet_link_state`, `serial_link_state`, `active_board`, `last_FRNCS_sync`,
-                    `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`, `connection_type`, `gateway_ip_address`, `use_wired_link`, `selected_ground_server`, `binary_data_push_rate`, `flight_data_num_records_download`, `flight_data_object_num_records_download`,  `flight_data_binary_num_records_download`,  `command_log_num_records_download`,  `system_messages_num_records_download`,  `sync_to_ground`,  `command_push_rate`) VALUES (
+                    `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`, `connection_type`, `gateway_ip_address`, `use_wired_link`, `selected_ground_server`, `binary_data_push_rate`, `flight_data_num_records_download`, `flight_data_object_num_records_download`,  `flight_data_binary_num_records_download`,  `command_log_num_records_download`,  `system_messages_num_records_download`,  `sync_to_ground`,  `command_push_rate`,  `linkstar_duplex_state_num_records_download`) VALUES (
                      %(state_index)s, %(current_mode)s,
                     %(current_flight_phase)s, %(data_download_push_rate)s, %(command_poll_rate)s, %(command_syslog_push_rate)s,
                     %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s,
-                    %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s, %(connection_type)s, %(gateway_ip_address)s, %(use_wired_link)s, %(selected_ground_server)s, %(binary_data_push_rate)s, %(flight_data_num_records_download)s, %(flight_data_object_num_records_download)s, %(flight_data_binary_num_records_download)s, %(command_log_num_records_download)s, %(system_messages_num_records_download)s, %(sync_to_ground)s, %(command_push_rate)s )
+                    %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s, %(connection_type)s, %(gateway_ip_address)s, %(use_wired_link)s, %(selected_ground_server)s, %(binary_data_push_rate)s, %(flight_data_num_records_download)s, %(flight_data_object_num_records_download)s, %(flight_data_binary_num_records_download)s, %(command_log_num_records_download)s, %(system_messages_num_records_download)s, %(sync_to_ground)s, %(command_push_rate)s, %(linkstar_duplex_state_num_records_download)s )
             ''', row_recording_session_state)
             self.db.commit()
 
@@ -526,11 +526,86 @@ class vms_db(object):
             row_flight_pointers['Recording_Sessions_recording_session_id'] = row_recording_session['recording_session_id']
             self.cursor.execute('''
                INSERT INTO `stepSATdb_Flight`.`Flight_Pointers` (`Recording_Sessions_recording_session_id`, `flight_data_event_key`,
-                    `flight_data_binary_event_key`, `flight_data_object_event_key`, `system_messages_event_key` ) VALUES (
+                    `flight_data_binary_event_key`, `flight_data_object_event_key`, `system_messages_event_key`, `linkstar_duplex_state_event_key` ) VALUES (
                      %(Recording_Sessions_recording_session_id)s, %(flight_data_event_key)s,
-                    %(flight_data_binary_event_key)s, %(flight_data_object_event_key)s, %(system_messages_event_key)s )
+                    %(flight_data_binary_event_key)s, %(flight_data_object_event_key)s, %(system_messages_event_key)s, %(linkstar_duplex_state_event_key)s )
             ''', row_flight_pointers)
             self.db.commit()
+            
+            # Update LinkStar Duplex information - the new recording_session_id information
+            stmt = '''
+                SELECT *
+                    FROM `stepSATdb_Flight`.`LinkStar_Duplex_Information`
+                    ORDER BY `LinkStar_Duplex_Information`.`esn` DESC LIMIT 1
+             '''
+            self.cursor.execute(stmt)
+            row_linkStar_duplex_information = self.cursor.fetchone()
+
+            row_linkStar_duplex_information['current_recording_session'] = row_recording_session['recording_session_id']
+            self.cursor.execute('''
+                UPDATE `stepSATdb_Flight`.`LinkStar_Duplex_Information`
+                    SET `LinkStar_Duplex_Information`.`current_recording_session` = %(current_recording_session)s 
+                    WHERE `LinkStar_Duplex_Information`.`esn` = %(esn)s
+            ''', row_linkStar_duplex_information)
+            self.db.commit()
+
+            #  With a new Recording_Session_State we need to download it to the ground station.
+            #
+            if not os.path.exists('/opt/qs/tmp'):
+                os.mkdir('/opt/qs/tmp')
+
+            uid = pwd.getpwnam("mysql").pw_uid
+            gid = grp.getgrnam("mysql").gr_gid
+
+            if not os.stat('/opt/qs/tmp').st_uid == uid:
+                os.chown('/opt/qs/tmp', uid, gid)
+
+            if os.path.exists('/opt/qs/tmp/Recording_Session_State.csv'):
+                os.remove('/opt/qs/tmp/recording_sessions.csv')
+
+            stmt = '''
+                SELECT * FROM `stepSATdb_Flight`.`Recording_Session_State` INTO OUTFILE '/opt/qs/tmp/Recording_Session_State.csv'
+                       FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+           '''
+            with self.lock:
+                self.cursor.execute(stmt)
+
+            # ---- The time the last sync of the data occurred with the ground ----
+            stmt_write_timesync = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
+            '''
+            with self.lock:
+                self.cursor.execute(stmt_write_timesync)
+            
+            #  Since a new Flight_Pointers record was created this needs to be added to the ground station.
+            #            
+            if not os.path.exists('/opt/qs/tmp'):
+                os.mkdir('/opt/qs/tmp')
+
+            uid = pwd.getpwnam("mysql").pw_uid
+            gid = grp.getgrnam("mysql").gr_gid
+
+            if not os.stat('/opt/qs/tmp').st_uid == uid:
+                os.chown('/opt/qs/tmp', uid, gid)
+
+            if os.path.exists('/opt/qs/tmp/Flight_Pointers.csv'):
+                os.remove('/opt/qs/tmp/Flight_Pointers.csv')
+
+            stmt = '''
+                SELECT * FROM `stepSATdb_Flight`.`Flight_Pointers` INTO OUTFILE '/opt/qs/tmp/Flight_Pointers.csv'
+                       FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+            '''
+            with self.lock:
+                self.cursor.execute(stmt)
+
+            # ---- The time the last sync of the data occurred with the ground ----
+            stmt_write_timesync = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
+            '''
+            with self.lock:
+                self.cursor.execute(stmt_write_timesync)
 
     def get_db_ground_args(self):
         # Retrieve ground server identifying information
@@ -683,27 +758,6 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
 
-<<<<<<< Updated upstream
-    def sync_system_applications(self):
-        if not os.path.exists('/opt/qs/tmp'):
-            os.mkdir('/opt/qs/tmp')
-
-        uid = pwd.getpwnam("mysql").pw_uid
-        gid = grp.getgrnam("mysql").gr_gid
-
-        if not os.stat('/opt/qs/tmp').st_uid == uid:
-            os.chown('/opt/qs/tmp', uid, gid)
-
-        if os.path.exists('/opt/qs/tmp/system_applications.csv'):
-            os.remove('/opt/qs/tmp/system_applications.csv')
-
-        stmt = '''
-            SELECT * FROM `stepSATdb_Flight`.`System_Applications` INTO OUTFILE '/opt/qs/tmp/system_applications.csv'
-               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
-            '''
-        with self.lock:
-            self.cursor.execute(stmt)
-=======
         # ---- The time the last sync of the data occurred with the ground ----
         stmt_write_timesync = '''
             UPDATE `stepSATdb_Flight`.`Recording_Session_State`
@@ -711,7 +765,6 @@ class vms_db(object):
         '''
         with self.lock:
             self.cursor.execute(stmt_write_timesync)
->>>>>>> Stashed changes
 
     def read_command_log(self):
         # Returns the appropriate rows of the sv db
@@ -744,6 +797,7 @@ class vms_db(object):
                     self.db.commit()
 
     def update_sv_command_log(self, commands):
+        # updates relevant row(s) in sv command log
         if commands:
             for row in commands:
                 stmt = '''
@@ -782,7 +836,6 @@ class vms_db(object):
 
         app_stmt = '''
             INSERT INTO `stepSATdb_Flight`.`System_Applications` ({}) VALUES ({})
-                ON DUPLICATE KEY UPDATE
         '''.format(app_cols, app_vals)
 
         # It's possible that an application may not have parameters
@@ -792,7 +845,6 @@ class vms_db(object):
 
             params_stmt = '''
                 INSERT INTO `stepSATdb_Flight`.`Parameter_ID_Table` ({}) VALUES ({})
-                    ON DUPLICATE KEY UPDATE
             '''.format(param_cols, param_vals)
 
         with self.lock:
