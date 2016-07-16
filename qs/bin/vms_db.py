@@ -854,3 +854,15 @@ class vms_db(object):
             if params:
                 self.cursor.executemany(params_stmt, params)
                 self.db.commit()
+
+    def read_system_applications(self):
+        # Returns the System_Application rows of the sv db
+        stmt = '''
+            SELECT *
+                FROM `stepSATdb_Flight`.`System_Applications`
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            system_applications_data = self.cursor.fetchall()
+            # print commands
+        return system_applications_data

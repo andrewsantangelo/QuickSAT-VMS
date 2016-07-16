@@ -162,8 +162,14 @@ class vms(object):
         t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
         self.threads.append(t)
 
-        # Recording_Sessions uses command_syslog_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, self.db.retrieve_command_syslog_push_rate())
+        # System_Messages uses command_syslog_push_rate
+        t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
+        self.threads.append(t)
+
+        # Systems_Applications uses retrieve_command_log_poll_rate
+        #    Update the ground station Systems_Application table - this tells the ground station the state of the applications on the SV.
+        #
+        t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
         self.threads.append(t)
         
         # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
@@ -337,9 +343,8 @@ class vms(object):
         # Creating a new recording session
         # pylint: disable=bare-except
         try:
+            print "create rec session test"
             self.db.increment_session()
-            self.db_ground.sync_recording_session_state()
-            self.db_ground.sync_flight_pointers()
             self.db.complete_commands(cmd, True)
         except KeyboardInterrupt as e:
             raise e
@@ -474,6 +479,9 @@ class vms(object):
                 print "recording sessions test"
                 self.db.sync_recording_sessions()
                 self.db_ground.sync_recording_sessions()
+                print "writing recording session state"
+                self.db_ground.sync_recording_session_state()
+                self.db_ground.sync_flight_pointers()                
                 if cmd:
                     self.db.complete_commands(cmd, True)
 
@@ -529,4 +537,19 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
-
+                        
+    def update_system_applications_state_to_gnd(self, cmd=None):
+        # read from sv db
+        # write to ground db
+        self.linkstar.get_radio_status()
+        if self.db.check_test_connection():
+            if self.check_db_ground_connection():
+                # try:
+                system_applications_data = self.db.read_system_applications()
+                self.db_ground.update_system_applications_gnd(system_applications_data)  # write to ground db the latest state of the applications
+                if cmd:
+                    self.db.complete_commands(cmd, True)
+                print "system_applications sv to ground function complete"
+                # except:
+                #    if cmd:
+                #        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))

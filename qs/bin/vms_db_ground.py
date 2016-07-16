@@ -237,3 +237,17 @@ class vms_db_ground(object):
             params = self.cursor.fetchall()
 
         return (info, params)
+
+    def update_system_applications_gnd(self, system_applications_data):
+        # Writes updated row(s)to the ground db command log
+        if system_applications_data:
+            for row in system_applications_data:
+                stmt = '''
+                    UPDATE `stepSATdb_Flight`.`System_Applications`
+                        SET `System_Applications`.`application_state` = %(application_state)s, `System_Applications`.`application_status` = %(application_status)s, `System_Applications`.`locked_flag` = %(locked_flag)s, `System_Applications`.`target_board_installed` = %(target_board_installed)s
+                            WHERE `System_Applications`.`application_id` = %(application_id)s
+                '''
+                with self.lock:
+                    self.cursor.execute(stmt, row)
+                    self.db.commit()
+
