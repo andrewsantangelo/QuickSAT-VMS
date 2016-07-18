@@ -78,7 +78,7 @@ class VmsFile(object):
                 raise Exception(msg)
 
             options = {
-                'host': self.db_args['server'],
+                'host': self.db_args['address'],
                 'username': self.db_args['fileserver_username'],
                 'path': self.db_args['fileserver_pathname'],
                 'file': info['application_filename'],
