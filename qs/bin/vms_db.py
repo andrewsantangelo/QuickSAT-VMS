@@ -866,3 +866,16 @@ class vms_db(object):
             system_applications_data = self.cursor.fetchall()
             # print commands
         return system_applications_data
+        
+
+     def change_system_application_state(self, app_id, app_state, app_status, app_locked, app_installed):
+        # changes the state of the System_Application
+        stmt = '''
+            UPDATE `stepSATdb_Flight`.`System_Applications`
+                SET `System_Applications`.`application_state` = app_state, `System_Applications`.`application_status` = app_status, `System_Applications`.`locked_flag` = app_locked, `System_Applications`.`target_board_installed` = app_installed
+                    WHERE `System_Applications`.`application_id` = app_id
+        '''
+        with self.lock:
+            self.cursor.execute(stmt)
+            self.db.commit()
+

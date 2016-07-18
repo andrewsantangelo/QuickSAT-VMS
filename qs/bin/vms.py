@@ -537,19 +537,51 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
-                        
+
     def update_system_applications_state_to_gnd(self, cmd=None):
         # read from sv db
         # write to ground db
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
-                # try:
-                system_applications_data = self.db.read_system_applications()
-                self.db_ground.update_system_applications_gnd(system_applications_data)  # write to ground db the latest state of the applications
-                if cmd:
-                    self.db.complete_commands(cmd, True)
-                print "system_applications sv to ground function complete"
-                # except:
-                #    if cmd:
-                #        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+                try:
+                    print "system_applications sv to ground function"
+                    system_applications_data = self.db.read_system_applications()
+                    self.db_ground.update_system_applications_gnd(system_applications_data)  # write to ground db the latest state of the applications
+                    if cmd:
+                        self.db.complete_commands(cmd, True)
+                except:
+                    if cmd:
+                        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+
+    def upload_app_from_gnd(self, cmd):
+        self.linkstar.get_radio_status()
+        if self.db.check_test_connection():
+            if self.check_db_ground_connection():
+                try:
+                    print "Uploading app from GND to Vehicle"
+                    #  read file
+                    #  Set app state to 80 ONLY after file is completely uploaded
+                    application_id = cmd['command_data']
+                    self.db.change_system_application_state(self, application_id, 80, "GATEWAY Storage", 1)
+                    if cmd:
+                        self.db.complete_commands(cmd, True)
+                except:
+                    if cmd:
+                        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+
+    def delete_from_gateway(self, cmd):
+        # This deletes apps/VMs with a status of 80 - APPS/VMs cannot be deleted if they are running, status > 100.  
+        #    Failed apps with status greater than 100 can be reset to a status of 80.
+        #    Locked apps CANNOT be deleted.
+        # This command can be acted upon without communicating with the ground station.
+        try:
+            print "Deleting APP/VM from Gateway"
+            application_id = cmd['command_data']
+            self.db.change_system_application_state(self, application_id, 50, "GROUND Storage", 0)
+            if cmd:
+                self.db.complete_commands(cmd, True)
+        except:
+            if cmd:
+                self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+
