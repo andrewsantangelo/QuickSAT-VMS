@@ -470,6 +470,7 @@ class vms_db(object):
             return None
 
     def increment_session(self):
+        # pylint: disable=too-many-statements
         # First increment and create new recording session
         with self.lock:
 
@@ -531,7 +532,7 @@ class vms_db(object):
                     %(flight_data_binary_event_key)s, %(flight_data_object_event_key)s, %(system_messages_event_key)s, %(linkstar_duplex_state_event_key)s )
             ''', row_flight_pointers)
             self.db.commit()
-            
+
             # Update LinkStar Duplex information - the new recording_session_id information
             stmt = '''
                 SELECT *
@@ -544,13 +545,12 @@ class vms_db(object):
             row_linkStar_duplex_information['current_recording_session'] = row_recording_session['recording_session_id']
             self.cursor.execute('''
                 UPDATE `stepSATdb_Flight`.`LinkStar_Duplex_Information`
-                    SET `LinkStar_Duplex_Information`.`current_recording_session` = %(current_recording_session)s 
+                    SET `LinkStar_Duplex_Information`.`current_recording_session` = %(current_recording_session)s
                     WHERE `LinkStar_Duplex_Information`.`esn` = %(esn)s
             ''', row_linkStar_duplex_information)
             self.db.commit()
 
             #  With a new Recording_Session_State we need to download it to the ground station.
-            #
             if not os.path.exists('/opt/qs/tmp'):
                 os.mkdir('/opt/qs/tmp')
 
@@ -577,9 +577,8 @@ class vms_db(object):
             '''
             with self.lock:
                 self.cursor.execute(stmt_write_timesync)
-            
+
             #  Since a new Flight_Pointers record was created this needs to be added to the ground station.
-            #            
             if not os.path.exists('/opt/qs/tmp'):
                 os.mkdir('/opt/qs/tmp')
 
@@ -758,7 +757,6 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
 
-<<<<<<< HEAD
         # ---- The time the last sync of the data occurred with the ground ----
         stmt_write_timesync = '''
             UPDATE `stepSATdb_Flight`.`Recording_Session_State`
@@ -766,27 +764,6 @@ class vms_db(object):
         '''
         with self.lock:
             self.cursor.execute(stmt_write_timesync)
-=======
-    def sync_system_applications(self):
-        if not os.path.exists('/opt/qs/tmp'):
-            os.mkdir('/opt/qs/tmp')
-
-        uid = pwd.getpwnam("mysql").pw_uid
-        gid = grp.getgrnam("mysql").gr_gid
-
-        if not os.stat('/opt/qs/tmp').st_uid == uid:
-            os.chown('/opt/qs/tmp', uid, gid)
-
-        if os.path.exists('/opt/qs/tmp/system_applications.csv'):
-            os.remove('/opt/qs/tmp/system_applications.csv')
-
-        stmt = '''
-            SELECT * FROM `stepSATdb_Flight`.`System_Applications` INTO OUTFILE '/opt/qs/tmp/system_applications.csv'
-               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
-            '''
-        with self.lock:
-            self.cursor.execute(stmt)
->>>>>>> origin/master
 
     def read_command_log(self):
         # Returns the appropriate rows of the sv db
@@ -888,9 +865,8 @@ class vms_db(object):
             system_applications_data = self.cursor.fetchall()
             # print commands
         return system_applications_data
-        
 
-     def change_system_application_state(self, app_id, app_state, app_status, app_locked, app_installed):
+    def change_system_application_state(self, app_id, app_state, app_status, app_locked, app_installed):
         # changes the state of the System_Application
         stmt = '''
             UPDATE `stepSATdb_Flight`.`System_Applications`
@@ -900,4 +876,3 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
             self.db.commit()
-
