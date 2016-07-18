@@ -4,6 +4,7 @@ A module that handles processing the commands to manipulate the target (HOST)
 computer.
 
 Copyright (c) 2016, DornerWorks, Ltd.
+
 """
 
 import syslog
