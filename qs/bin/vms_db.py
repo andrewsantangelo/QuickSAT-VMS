@@ -24,7 +24,7 @@ import grp
 import mysql.connector
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments
+# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments,too-many-locals
 #
 # TEMPORARY:
 # pylint: disable=missing-docstring
@@ -758,6 +758,7 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
 
+<<<<<<< HEAD
         # ---- The time the last sync of the data occurred with the ground ----
         stmt_write_timesync = '''
             UPDATE `stepSATdb_Flight`.`Recording_Session_State`
@@ -765,6 +766,27 @@ class vms_db(object):
         '''
         with self.lock:
             self.cursor.execute(stmt_write_timesync)
+=======
+    def sync_system_applications(self):
+        if not os.path.exists('/opt/qs/tmp'):
+            os.mkdir('/opt/qs/tmp')
+
+        uid = pwd.getpwnam("mysql").pw_uid
+        gid = grp.getgrnam("mysql").gr_gid
+
+        if not os.stat('/opt/qs/tmp').st_uid == uid:
+            os.chown('/opt/qs/tmp', uid, gid)
+
+        if os.path.exists('/opt/qs/tmp/system_applications.csv'):
+            os.remove('/opt/qs/tmp/system_applications.csv')
+
+        stmt = '''
+            SELECT * FROM `stepSATdb_Flight`.`System_Applications` INTO OUTFILE '/opt/qs/tmp/system_applications.csv'
+               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+            '''
+        with self.lock:
+            self.cursor.execute(stmt)
+>>>>>>> origin/master
 
     def read_command_log(self):
         # Returns the appropriate rows of the sv db
