@@ -19,7 +19,7 @@ import ls_comm_flight_stream
 import linkstar
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments,star-args
+# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments
 #
 # TEMPORARY:
 # pylint: disable=missing-docstring
@@ -171,18 +171,22 @@ class vms(object):
         #
         t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
         self.threads.append(t)
-        
+
         # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
-        
+
         ls_duplex_installed = self.db.ls_duplex_installed_state()
-        
+
         # IF the duplex radio is installed, send the duplex information to the ground periodically
-        if ls_duplex_installed==1:
-           # Linkstar duplex state pushing uses command_log_rate
-           t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
-           self.threads.append(t)
+        if ls_duplex_installed == 1:
+            # Linkstar duplex state pushing uses command_log_rate
+            t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
+            self.threads.append(t)
 
     def __del__(self):
+        for t in self.threads:
+            t.stop()
+        for proc in self.cmd_processes[:]:
+            proc.kill()
         syslog.syslog(syslog.LOG_NOTICE, 'Shutting down')
         syslog.closelog()
 
@@ -202,6 +206,12 @@ class vms(object):
         except KeyboardInterrupt:
             for t in self.threads:
                 t.stop()
+            self.threads = []
+
+            for proc in self.cmd_processes:
+                proc.kill()
+            self.cmd_processes = []
+
             raise
 
     def process(self):
@@ -481,7 +491,7 @@ class vms(object):
                 self.db_ground.sync_recording_sessions()
                 print "writing recording session state"
                 self.db_ground.sync_recording_session_state()
-                self.db_ground.sync_flight_pointers()                
+                self.db_ground.sync_flight_pointers()
                 if cmd:
                     self.db.complete_commands(cmd, True)
 
@@ -526,7 +536,7 @@ class vms(object):
     def sync_linkstar_duplex_state(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
-            if self.check_db_ground_connection():     
+            if self.check_db_ground_connection():
                 print "sync_linkstar_duplex test"
                 # pylint: disable=bare-except
                 try:
@@ -544,6 +554,7 @@ class vms(object):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
+                # pylint: disable=bare-except
                 try:
                     print "system_applications sv to ground function"
                     system_applications_data = self.db.read_system_applications()
@@ -558,6 +569,7 @@ class vms(object):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
+                # pylint: disable=bare-except
                 try:
                     print "Uploading app from GND to Vehicle"
                     #  read file
@@ -571,10 +583,11 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def delete_from_gateway(self, cmd):
-        # This deletes apps/VMs with a status of 80 - APPS/VMs cannot be deleted if they are running, status > 100.  
+        # This deletes apps/VMs with a status of 80 - APPS/VMs cannot be deleted if they are running, status > 100.
         #    Failed apps with status greater than 100 can be reset to a status of 80.
         #    Locked apps CANNOT be deleted.
         # This command can be acted upon without communicating with the ground station.
+        # pylint: disable=bare-except
         try:
             print "Deleting APP/VM from Gateway"
             application_id = cmd['command_data']
@@ -584,4 +597,3 @@ class vms(object):
         except:
             if cmd:
                 self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
-

@@ -13,6 +13,7 @@ import time
 import traceback
 import sys
 import os
+import errno
 
 import vms_db_ground
 
@@ -96,8 +97,20 @@ class VmsFile(object):
                     status = proc.wait()
                     log_msg = 'rsync {0[host]}:{0[path]}/{0[file]} result = {1}'.format(options, status)
                     syslog.syslog(syslog.LOG_INFO, log_msg)
+                except OSError as exp:
+                    # If the error is "no such file", re-raise the exception
+                    # and stop the command.
+                    if exp.errno == errno.ENOENT:
+                        raise exp
+                    else:
+                        # Set a fake failure status to keep the loop running
+                        status = 254
+
+                        except_data = traceback.format_exception(*sys.exc_info())
+                        log_msg = 'rsync {0[host]}:{0[path]}/{0[file]} exception! {1}'.format(options, except_data)
+                        syslog.syslog(syslog.LOG_INFO, log_msg)
                 except:
-                    # Set a fake failure status to keep the loop running
+                    # all other exceptions, keep trying
                     status = 254
 
                     except_data = traceback.format_exception(*sys.exc_info())
