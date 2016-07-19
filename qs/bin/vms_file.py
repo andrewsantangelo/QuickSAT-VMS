@@ -7,7 +7,6 @@ Copyright (c) 2016, DornerWorks, Ltd.
 """
 
 import syslog
-import multiprocessing
 import subprocess
 import time
 import traceback
@@ -15,7 +14,6 @@ import sys
 import os
 import errno
 
-import vms_db_ground
 
 # These commands require the use of the "sshpass" application since the
 # paramiko python module does not support rsync
@@ -32,98 +30,79 @@ class VmsFile(object):
     A class that handles VMS file retrieve commands
     """
     def __init__(self):
-        self.lock = multiprocessing.Lock()
-        self.db_ground = None
         self.db_args = None
 
     def __del__(self):
-        self.close()
+        pass
 
     def open(self, **kwargs):
         """
         Opens the connection with the ground database.
         """
-        self.lock.acquire()
-        if not self.db_ground:
-            self.db_args = kwargs
-            self.db_ground = vms_db_ground.vms_db_ground(**self.db_args)
-        else:
-            self.db_ground.open()
+        self.db_args = kwargs
 
     def close(self):
         """
         Releases the lock so that other ground file operations can be attempted.
         """
-        self.db_ground.close()
-        self.lock.release()
+        pass
 
-    def get_app(self, app_id):
+    def get_app(self, info):
         """
         Retrieves an application and associated data from the VMS ground server.
         """
 
-        # First retrieve the application information from the ground server,
-        # this way we don't need to reconnect to the ground DB later if the
-        # connection drops while retracing the application.
-        (info, params) = self.db_ground.get_application_info(app_id)
+        # If there is no file defined, raise an exception now and don't
+        # attempt the upload.
+        if not info['application_filename']:
+            msg = 'filename not specified for application {}'.format(info)
+            raise Exception(msg)
 
-        # If we were able to retrieve the application information successfully,
-        # retrieve the file using rsync.  This may take multiple attempts, so
-        # if it fails, wait 1 minute and try again.  If the connection to the
-        # ground drops while this is running, we'll just have to keep trying.
-        if info:
-            # If there is no file defined, raise an exception now and don't
-            # attempt the upload.
-            if not info['application_filename']:
-                msg = 'filename not specified for application {}'.format(info)
-                raise Exception(msg)
+        options = {
+            'host': self.db_args['address'],
+            'username': self.db_args['fileserver_username'],
+            'path': self.db_args['fileserver_pathname'],
+            'file': info['application_filename'],
+        }
+        env = {'SSHPASS': self.db_args['fileserver_password']}
 
-            options = {
-                'host': self.db_args['address'],
-                'username': self.db_args['fileserver_username'],
-                'path': self.db_args['fileserver_pathname'],
-                'file': info['application_filename'],
-            }
-            env = {'SSHPASS': self.db_args['fileserver_password']}
-
-            # format the rsync command
-            rsync_str = '/usr/bin/rsync -caqz --rsh="/usr/bin/sshpass -e ssh -l {username}" {host}:{path}/{file} /opt/qs/input/{file}'
-            rsync_cmd = rsync_str.format(**options)
-            while True:
-                # pylint: disable=bare-except
-                try:
-                    # Run the rsync command
-                    proc = subprocess.Popen(rsync_cmd, env=env)
-                    status = proc.wait()
-                    log_msg = 'rsync {0[host]}:{0[path]}/{0[file]} result = {1}'.format(options, status)
-                    syslog.syslog(syslog.LOG_INFO, log_msg)
-                except OSError as exp:
-                    # If the error is "no such file", re-raise the exception
-                    # and stop the command.
-                    if exp.errno == errno.ENOENT:
-                        raise exp
-                    else:
-                        # Set a fake failure status to keep the loop running
-                        status = 254
-
-                        except_data = traceback.format_exception(*sys.exc_info())
-                        log_msg = 'rsync {0[host]}:{0[path]}/{0[file]} exception! {1}'.format(options, except_data)
-                        syslog.syslog(syslog.LOG_INFO, log_msg)
-                except:
-                    # all other exceptions, keep trying
+        # format the rsync command
+        rsync_str = '/usr/bin/rsync -caqz --rsh="/usr/bin/sshpass -e ssh -l {username}" {host}:{path}/{file} /opt/qs/input/{file}'
+        rsync_cmd = rsync_str.format(**options)
+        while True:
+            # pylint: disable=bare-except
+            try:
+                # Run the rsync command
+                proc = subprocess.Popen(rsync_cmd, shell=True, env=env)
+                status = proc.wait()
+                log_msg = 'rsync {0[host]}:{0[path]}/{0[file]} result = {1}'.format(options, status)
+                syslog.syslog(syslog.LOG_INFO, log_msg)
+            except OSError as exp:
+                # If the error is "no such file", re-raise the exception
+                # and stop the command.
+                if exp.errno == errno.ENOENT:
+                    raise exp
+                else:
+                    # Set a fake failure status to keep the loop running
                     status = 254
 
                     except_data = traceback.format_exception(*sys.exc_info())
                     log_msg = 'rsync {0[host]}:{0[path]}/{0[file]} exception! {1}'.format(options, except_data)
                     syslog.syslog(syslog.LOG_INFO, log_msg)
+            except:
+                # all other exceptions, keep trying
+                status = 254
 
-                # Did rsync complete successfully?  If so return the retrieved
-                # info, otherwise sleep 1 minute and then try again later.
-                if not status:
-                    return (info, params)
-                else:
-                    time.sleep(60.0)
-        return None
+                except_data = traceback.format_exception(*sys.exc_info())
+                log_msg = 'rsync {0[host]}:{0[path]}/{0[file]} exception! {1}'.format(options, except_data)
+                syslog.syslog(syslog.LOG_INFO, log_msg)
+
+            # Did rsync complete successfully?  If so return the retrieved
+            # info, otherwise sleep 1 minute and then try again later.
+            if not status:
+                return True
+            else:
+                time.sleep(60.0)
 
 
 # pylint: disable=invalid-name
@@ -157,15 +136,11 @@ def process(db, cmd, data):
     # Now process the command
     cmd = cmd.lower()
     if cmd == 'upload_application':
-        (app_info, app_params) = VMS_GROUND.get_app(data)
-        if app_info:
-            # if file was retrieved successfully, and the get_app() function
-            # returned the required database information, insert that info
-            # into the DB now.
-            app_info['application_state'] = 80
-            app_info['application_status'] = 'GATEWAY Storage'
-            db.add_app(app_info, app_params)
-            result = True
+        info = db.get_app_info(ident=data)
+        if info:
+            result = VMS_GROUND.get_app(info)
+            if result:
+                db.set_application_state(info, 80, 'GATEWAY Storage', None)
         else:
             msg = 'Unable to retrieve info from ground server for app: {}'.format(data)
             db._log_msg(msg)
@@ -193,3 +168,14 @@ def process(db, cmd, data):
     VMS_GROUND.close()
 
     return result
+
+if __name__ == '__main__':
+    # pylint: disable=wrong-import-position,too-many-function-args,superfluous-parens
+    import vms_db
+    test_db = vms_db.vms_db(address='127.0.0.1', port=3306, username='root', password='quicksat1', cert=None, dbname='stepSATdb_Flight')
+    if len(sys.argv) > 1:
+        testcmd = sys.argv[1]
+    if len(sys.argv) > 2:
+        appid = sys.argv[2]
+    testresult = process(test_db, testcmd, appid)
+    print('cmd {},{} = {}'.format(testcmd, appid, testresult))

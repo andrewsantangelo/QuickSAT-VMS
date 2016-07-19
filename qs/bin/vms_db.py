@@ -163,6 +163,7 @@ class vms_db(object):
                     `System_Applications`.`Configuration_Parts_part_key` AS 'part',
                     `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS 'config',
                     `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS 'mission',
+                    `System_Applications`.`application_filename` AS 'application_filename',
                     `Parameter_ID_Table`.`parameter_id` AS 'param',
                     `Parameter_ID_Table`.`type` AS 'param_type',
                     `Virtual_Machines`.`virtual_machine_id` AS 'vm',
@@ -826,33 +827,6 @@ class vms_db(object):
 
         connection = results['test_connection']
         return connection
-
-    def add_app(self, info, params):
-        # Generate a list of column names and value placeholders from the
-        # supplied dictionaries
-        app_cols = ','.join([key for key in info.keys()])
-        app_vals = ','.join(['%{}s'.format(key) for key in info.keys()])
-
-        app_stmt = '''
-            INSERT INTO `stepSATdb_Flight`.`System_Applications` ({}) VALUES ({})
-        '''.format(app_cols, app_vals)
-
-        # It's possible that an application may not have parameters
-        if params:
-            param_cols = ','.join([key for key in params[0].keys()])
-            param_vals = ','.join(['%{}s'.format(key) for key in params[0].keys()])
-
-            params_stmt = '''
-                INSERT INTO `stepSATdb_Flight`.`Parameter_ID_Table` ({}) VALUES ({})
-            '''.format(param_cols, param_vals)
-
-        with self.lock:
-            self.cursor.execute(app_stmt, info)
-            self.db.commit()
-
-            if params:
-                self.cursor.executemany(params_stmt, params)
-                self.db.commit()
 
     def read_system_applications(self):
         # Returns the System_Application rows of the sv db
