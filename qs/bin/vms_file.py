@@ -149,6 +149,7 @@ def process(db, cmd, data):
         info = db.get_app_info(ident=data)
         # If we were able to retrieve the application, remove the application
         # from the filesystem.
+        result = False
         if info:
             # Ensure that the filename is specified before we attempt to
             # remove it
@@ -159,6 +160,7 @@ def process(db, cmd, data):
             # If the file removed successfully, update the application state.
             # The local state will get synced to the ground eventually.
             db.set_application_state(info, 50, 'On Ground', None)
+            result = True
     else:
         msg = 'Unsupported VMS file command: {}'.format(cmd)
         db._log_msg(msg)
