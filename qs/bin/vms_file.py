@@ -38,13 +38,13 @@ class VmsFile(object):
     def __del__(self):
         self.close()
 
-    def open(self, **args):
+    def open(self, **kwargs):
         """
         Opens the connection with the ground database.
         """
         self.lock.acquire()
         if not self.db_ground:
-            self.db_args = args
+            self.db_args = kwargs
             self.db_ground = vms_db_ground.vms_db_ground(**self.db_args)
         else:
             self.db_ground.open()
@@ -131,6 +131,9 @@ def process(db, cmd, data):
         'password': args['password'],
         'cert': None,
         'dbname': 'stepSATdb_Flight',
+        'fileserver_username': args['fileserver_username'],
+        'fileserver_pathname': args['fileserver_pathname'],
+        'fileserver_password': args['fileserver_password'],
     }
 
     global VMS_GROUND
