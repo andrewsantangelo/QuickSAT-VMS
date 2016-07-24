@@ -136,7 +136,7 @@ class vms(object):
         self.threads.append(t)
 
         # Use a pre-defined radio status poll time for now
-        t = periodic_timer.PeriodicTimer(self.radio_status, 60)
+        t = periodic_timer.PeriodicTimer(self.radio_status, 35)
         self.threads.append(t)
 
         # Flight_Data and Flight_Data_Object use data_download_push_rate
@@ -162,8 +162,8 @@ class vms(object):
         t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
         self.threads.append(t)
 
-        # System_Messages uses command_syslog_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
+        # recording_sessions uses command_syslog_push_rate
+        t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, 35)
         self.threads.append(t)
 
         # Systems_Applications uses retrieve_command_log_poll_rate
@@ -180,6 +180,20 @@ class vms(object):
         if ls_duplex_installed == 1:
             # Linkstar duplex state pushing uses command_log_rate
             t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
+            self.threads.append(t)
+
+        # IF the duplex radio is installed, update the location information between the radio and location tables
+        if ls_duplex_installed == 1:
+            # For now location information update rate is fixed at every 60 sec
+            print "update location loop"
+            t = periodic_timer.PeriodicTimer(self.update_linkstar_location_tables, 55)
+            self.threads.append(t)
+
+        # IF the duplex radio is installed, sync the location with the ground
+        if ls_duplex_installed == 1:
+            # System_Messages uses command_syslog_push_rate
+            print "sync location"
+            t = periodic_timer.PeriodicTimer(self.sync_location_table, 75)
             self.threads.append(t)
 
     def __del__(self):
@@ -360,6 +374,24 @@ class vms(object):
             raise e
         except:
             self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+            
+
+    def update_linkstar_location_tables(self, cmd=None):
+        #  Moves LinkStar Duplex State Location info into location table
+        #    This is done to keep all location information in one consistent spot.
+        #    Also, the goal is to keep location data frequency consistent, since 
+        #      Linkstar location information is updated irregularly and very frequently
+        # 
+        try:
+            print "update location table with LinkStar location information"
+            self.db.update_ls_location_info()
+            if cmd:
+                self.db.complete_commands(cmd, True)
+        except KeyboardInterrupt as e:
+            raise e
+        except:
+            if cmd:
+                self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def handle_unknown_command(self, key, cmd):
         # Mark the command as being processed
@@ -503,6 +535,7 @@ class vms(object):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
+                print "sync command log with the ground"
                 # try:
                 commands = self.db.read_command_log()
                 self.db_ground.add_ground_command_log(commands)  # write to ground db with pushed_to_ground set to true
@@ -542,6 +575,21 @@ class vms(object):
                 try:
                     self.db.sync_selected_db_table('LinkStar_Duplex_State')
                     self.db_ground.sync_selected_db_table('LinkStar_Duplex_State')
+                    if cmd:
+                        self.db.complete_commands(cmd, True)
+                except:
+                    if cmd:
+                        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+
+    def sync_location_table(self, cmd=None):
+        self.linkstar.get_radio_status()
+        if self.db.check_test_connection():
+            if self.check_db_ground_connection():
+                print "sync location Data information with the ground"
+                # pylint: disable=bare-except
+                try:
+                    self.db.sync_selected_db_table('Location_Data')
+                    self.db_ground.sync_selected_db_table('Location_Data')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except:

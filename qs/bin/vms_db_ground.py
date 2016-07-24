@@ -191,6 +191,7 @@ class vms_db_ground(object):
 
     def update_ground_command_log(self, ground_commands):
         # Writes updated row(s)to the ground db command log
+        print "update ground command log"
         if ground_commands:
             for row in ground_commands:
                 stmt = '''

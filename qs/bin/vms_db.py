@@ -261,8 +261,7 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
             results = self.cursor.fetchall()
-            print "entire command log:"
-            print results
+            print "All pending commands"
 
         stmt = '''
             SELECT `Command_Log`.`command` AS command,
@@ -470,6 +469,33 @@ class vms_db(object):
         else:
             return None
 
+    def update_ls_location_info(self):
+        # Get the current recording_session_id
+        stmt = '''
+                SELECT *
+                    FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
+             '''
+        self.cursor.execute(stmt)
+        row_recording_session = self.cursor.fetchone()
+
+        # Get the most recent LinkStar_Duplex_State
+        with self.lock:
+            self.cursor.execute('''
+                SELECT *
+                    FROM `stepSATdb_Flight`.`LinkStar_Duplex_State`
+                         WHERE `LinkStar_Duplex_State`.`Recording_Sessions_recording_session_id`= %(recording_session_id)s 
+                         ORDER BY `LinkStar_Duplex_State`.`event_key` DESC LIMIT 1
+            ''', row_recording_session)
+            row_LinkStar_Duplex_State = self.cursor.fetchone()
+            # Write the LinkStar location information into the Location_Data table
+            self.cursor.execute('''
+               INSERT INTO `stepSATdb_Flight`.`Location_Data` (`recording_session_id`,`latitude`, `longitude`,
+                    `time_recorded`, `timestamp_source`, `data_source`, `position_error`) VALUES (
+                     %(Recording_Sessions_recording_session_id)s, %(latitude)s, %(longitude)s, %(time_recorded)s, %(time_of_day)s, 'LINKSTAR1', %(position_error)s )
+            ''', row_LinkStar_Duplex_State)
+            self.db.commit()
+
     def increment_session(self):
         # pylint: disable=too-many-statements
         # First increment and create new recording session
@@ -506,11 +532,13 @@ class vms_db(object):
                INSERT INTO `stepSATdb_Flight`.`Recording_Session_State` (`state_index`, `current_mode`,
                     `current_flight_phase`, `data_download_push_rate`, `command_poll_rate`, `command_syslog_push_rate`,
                     `ethernet_link_state`, `serial_link_state`, `active_board`, `last_FRNCS_sync`,
-                    `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`, `connection_type`, `gateway_ip_address`, `use_wired_link`, `selected_ground_server`, `binary_data_push_rate`, `flight_data_num_records_download`, `flight_data_object_num_records_download`,  `flight_data_binary_num_records_download`,  `command_log_num_records_download`,  `system_messages_num_records_download`,  `sync_to_ground`,  `command_push_rate`,  `linkstar_duplex_state_num_records_download`) VALUES (
+                    `test_connection`, `FRNCS_contact`, `active_ground_server`, `Recording_Sessions_recording_session_id`, `selected_server`, `connection_type`, `gateway_ip_address`, `use_wired_link`, `selected_ground_server`, `binary_data_push_rate`, `flight_data_num_records_download`, `flight_data_object_num_records_download`,  `flight_data_binary_num_records_download`,  `command_log_num_records_download`,  `system_messages_num_records_download`,  `sync_to_ground`,
+                    `command_push_rate`, `linkstar_duplex_state_num_records_download`, `location_data_num_records_download`) VALUES (
                      %(state_index)s, %(current_mode)s,
                     %(current_flight_phase)s, %(data_download_push_rate)s, %(command_poll_rate)s, %(command_syslog_push_rate)s,
                     %(ethernet_link_state)s, %(serial_link_state)s, %(active_board)s, %(last_FRNCS_sync)s,
-                    %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s, %(connection_type)s, %(gateway_ip_address)s, %(use_wired_link)s, %(selected_ground_server)s, %(binary_data_push_rate)s, %(flight_data_num_records_download)s, %(flight_data_object_num_records_download)s, %(flight_data_binary_num_records_download)s, %(command_log_num_records_download)s, %(system_messages_num_records_download)s, %(sync_to_ground)s, %(command_push_rate)s, %(linkstar_duplex_state_num_records_download)s )
+                    %(test_connection)s, %(FRNCS_contact)s, %(active_ground_server)s, %(Recording_Sessions_recording_session_id)s, %(selected_server)s, %(connection_type)s, %(gateway_ip_address)s, %(use_wired_link)s, %(selected_ground_server)s, %(binary_data_push_rate)s, %(flight_data_num_records_download)s, %(flight_data_object_num_records_download)s, %(flight_data_binary_num_records_download)s, %(command_log_num_records_download)s, %(system_messages_num_records_download)s, %(sync_to_ground)s, %(command_push_rate)s,
+                    %(linkstar_duplex_state_num_records_download)s, %(location_data_num_records_download)s )
             ''', row_recording_session_state)
             self.db.commit()
 
