@@ -44,8 +44,7 @@ class vms_db_ground(object):
         }
         if not self.config['ssl_ca']:
             del self.config['ssl_ca']
-        with self.lock:
-            self.open()
+        self.open()
 
     def __del__(self):
         self.close()
@@ -55,16 +54,20 @@ class vms_db_ground(object):
         simple function to allow executing unusual statements
         """
 
-        with self.lock:
-            if isinstance(args, list):
-                self.cursor.executemany(stmt, args)
-            else:
-                self.cursor.execute(stmt, args)
-            if self.cursor.with_rows:
-                return self.cursor.fetchall()
-            else:
-                self.db.commit()
-                return None
+        # Test if the connection to the ground DB is still alive
+        if self.test_connection():
+            with self.lock:
+                if isinstance(args, list):
+                    self.cursor.executemany(stmt, args)
+                else:
+                    self.cursor.execute(stmt, args)
+
+                if self.cursor.with_rows:
+                    return self.cursor.fetchall()
+                else:
+                    self.db.commit()
+
+        return None
 
     def _log_msg(self, msg):
         stmt = '''
@@ -81,26 +84,38 @@ class vms_db_ground(object):
         '''
         # Handle exceptions for this cleanly, errors should get logged to the
         # syslog
-
         with self.lock:
-            try:
-                self.cursor.execute(stmt, (msg,))
-                self.db.commit()
             # pylint: disable=bare-except
+            try:
+                self._execute(stmt, (msg,))
             except:
                 syslog.syslog(syslog.LOG_ERR, 'Error logging message "{}": {}'.format(msg, sys.exc_info()[1]))
 
+    def test_connection(self):
+        with self.lock:
+            if self.db.is_connected():
+                return True
+            else:
+                try:
+                    # Try to reconnect once, if that fails we probably need to
+                    # wait until the connection has been re-established.
+                    self.db.reconnect(attempts=1, delay=0)
+
+                    # When re-establishing mysql connections you usually need
+                    # to re-instantiate any cursors or prepared statements
+                    self.cursor = self.db.cursor(dictionary=True)
+                    return True
+                except mysql.connector.Error as err:
+                    syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+        return False
+
     def open(self):
         with self.lock:
-            try:
-                if not self.db:
-                    self.db = mysql.connector.connect(**self.config)
+            if not self.db:
+                self.db = mysql.connector.connect(**self.config)
 
-                if self.db and not self.cursor:
-                    self.cursor = self.db.cursor(dictionary=True)
-            # pylint: disable=bare-except
-            except:
-                raise
+            if self.db and not self.cursor:
+                self.cursor = self.db.cursor(dictionary=True)
 
     def close(self):
         with self.lock:
@@ -128,9 +143,8 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            self.cursor.execute(stmt)
-            self.cursor.execute(stmt_update_last_sync_time)
-            self.db.commit()
+            self._execute(stmt)
+            self._execute(stmt_update_last_sync_time)
 
     def sync_recording_sessions(self):
         stmt = '''
@@ -139,8 +153,7 @@ class vms_db_ground(object):
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
         with self.lock:
-            self.cursor.execute(stmt)
-            self.db.commit()
+            self._execute(stmt)
 
     def sync_recording_session_state(self):
         stmt = '''
@@ -149,8 +162,7 @@ class vms_db_ground(object):
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
         with self.lock:
-            self.cursor.execute(stmt)
-            self.db.commit()
+            self._execute(stmt)
 
     def sync_flight_pointers(self):
         stmt = '''
@@ -159,8 +171,7 @@ class vms_db_ground(object):
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
         with self.lock:
-            self.cursor.execute(stmt)
-            self.db.commit()
+            self._execute(stmt)
 
     def sync_system_applications(self):
         stmt = '''
@@ -169,8 +180,7 @@ class vms_db_ground(object):
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
         with self.lock:
-            self.cursor.execute(stmt)
-            self.db.commit()
+            self._execute(stmt)
 
     def read_command_log(self):
         # Returns the appropriate row(s) of the ground db
@@ -185,8 +195,7 @@ class vms_db_ground(object):
                     )
         '''
         with self.lock:
-            self.cursor.execute(stmt)
-            commands = self.cursor.fetchall()
+            commands = self._execute(stmt)
         return commands
 
     def update_ground_command_log(self, ground_commands):
@@ -201,8 +210,7 @@ class vms_db_ground(object):
                             AND `Command_log`.`time_of_command` = %(time_of_command)s
                 '''
                 with self.lock:
-                    self.cursor.execute(stmt, row)
-                    self.db.commit()
+                    self._execute(stmt, row)
 
     def add_ground_command_log(self, ground_commands):
         # adds new row(s) to ground db
@@ -215,8 +223,7 @@ class vms_db_ground(object):
                 '''
                 # print stmt
                 with self.lock:
-                    self.cursor.execute(stmt, row)
-                    self.db.commit()
+                    self._execute(stmt, row)
 
     def get_application_info(self, app_id):
         app_stmt = '''
@@ -231,11 +238,8 @@ class vms_db_ground(object):
                 WHERE `Parameter_ID_Table`.`System_Applications_application_id`=%s
         '''
         with self.lock:
-            self.cursor.execute(app_stmt, (app_id,))
-            info = self.cursor.fetchone()
-
-            self.cursor.execute(params_stmt, (app_id,))
-            params = self.cursor.fetchall()
+            info = self._execute(app_stmt, (app_id,))[0]
+            params = self._execute(params_stmt, (app_id,))
 
         return (info, params)
 
@@ -249,6 +253,4 @@ class vms_db_ground(object):
                             WHERE `System_Applications`.`application_id` = %(application_id)s
                 '''
                 with self.lock:
-                    self.cursor.execute(stmt, row)
-                    self.db.commit()
-
+                    self._execute(stmt, row)
