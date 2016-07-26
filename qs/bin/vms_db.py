@@ -248,21 +248,6 @@ class vms_db(object):
 
     def all_pending_commands(self):
         print "entering vms_db.all_pending_commands()"
-
-        stmt = '''
-            SELECT *
-                FROM `stepSATdb_Flight`.`Command_Log`
-                WHERE `Command_Log`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions`
-                    )
-        '''
-
-        with self.lock:
-            self.cursor.execute(stmt)
-            results = self.cursor.fetchall()
-            print "All pending commands"
-
         stmt = '''
             SELECT `Command_Log`.`command` AS command,
                     `Command_Log`.`time_of_command` AS time,
@@ -484,7 +469,7 @@ class vms_db(object):
             self.cursor.execute('''
                 SELECT *
                     FROM `stepSATdb_Flight`.`LinkStar_Duplex_State`
-                         WHERE `LinkStar_Duplex_State`.`Recording_Sessions_recording_session_id`= %(recording_session_id)s 
+                         WHERE `LinkStar_Duplex_State`.`Recording_Sessions_recording_session_id`= %(recording_session_id)s
                          ORDER BY `LinkStar_Duplex_State`.`event_key` DESC LIMIT 1
             ''', row_recording_session)
             row_LinkStar_Duplex_State = self.cursor.fetchone()
@@ -720,9 +705,9 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt_event_key)
             row_flight_pointers = self.cursor.fetchone()
-            event_key = row_flight_pointers['{}_event_key'].format(string.lower(selected_table_name)
-            file_flag = row_flight_pointers['{}_rt'].format(string.lower(selected_table_name)
-            
+            event_key = row_flight_pointers['{}_event_key'.format(string.lower(selected_table_name))]
+            file_flag = row_flight_pointers['{}_rt'.format(string.lower(selected_table_name))]
+
         if file_flag == 0:
 
             if not os.path.exists('/opt/qs/tmp'):
@@ -805,7 +790,7 @@ class vms_db(object):
             self.cursor.execute(stmt_flag_key)
             row_flight_pointers = self.cursor.fetchone()
             file_flag = row_flight_pointers['recording__sessions_rt']
-            
+
         if file_flag == 0:
 
             if not os.path.exists('/opt/qs/tmp'):
@@ -834,7 +819,7 @@ class vms_db(object):
                         WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
                             SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                                 FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-            '''.format(string.lower(selected_table_name), new_event_key, string.lower(selected_table_name))
+            '''
             with self.lock:
                 self.cursor.execute(stmt_write_pointer)
 

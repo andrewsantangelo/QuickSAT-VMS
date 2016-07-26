@@ -374,14 +374,14 @@ class vms(object):
             raise e
         except:
             self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
-            
 
     def update_linkstar_location_tables(self, cmd=None):
         #  Moves LinkStar Duplex State Location info into location table
         #    This is done to keep all location information in one consistent spot.
-        #    Also, the goal is to keep location data frequency consistent, since 
+        #    Also, the goal is to keep location data frequency consistent, since
         #      Linkstar location information is updated irregularly and very frequently
-        # 
+        #
+        # pylint: disable=bare-except
         try:
             print "update location table with LinkStar location information"
             self.db.update_ls_location_info()
@@ -438,15 +438,23 @@ class vms(object):
             'dbname': self.args['vms_ground']['dbname']
         }
         print self.args['vms_ground']
+
+        # pylint: disable=bare-except
         if self.db_ground:
+            # This just indicates whether or not the ground connection has
+            # ever been established.  Connection checking and reconnection
+            # attempts are handled in the vms_db_ground class.
             return True
         else:
             try:
                 self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
                 print "connected to ground db"
+                return True
+            except KeyboardInterrupt as e:
+                raise e
             except:
-                raise
-            return self.db_ground
+                syslog.syslog(syslog.LOG_ERR, 'Error opening ground connection: {}'.format(traceback.format_exception(*sys.exc_info())))
+        return False
 
     """
     Most functions that use the radio will need to check the radio status first
