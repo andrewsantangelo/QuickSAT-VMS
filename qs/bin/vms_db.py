@@ -599,6 +599,17 @@ class vms_db(object):
             with self.lock:
                 self.cursor.execute(stmt)
 
+            # set flag to indicate file is ready for download
+            stmt_write_pointer = '''
+                UPDATE `stepSATdb_Flight`.`Flight_Pointers`
+                    SET `Flight_Pointers`.`recording_session_state_rt` = 1
+                        WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                            SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                                FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+            '''
+            with self.lock:
+                self.cursor.execute(stmt_write_pointer)
+
             # ---- The time the last sync of the data occurred with the ground ----
             stmt_write_timesync = '''
                 UPDATE `stepSATdb_Flight`.`Recording_Session_State`
@@ -626,6 +637,17 @@ class vms_db(object):
             '''
             with self.lock:
                 self.cursor.execute(stmt)
+
+            # set flag to indicate file is ready for download
+            stmt_write_pointer = '''
+                UPDATE `stepSATdb_Flight`.`Flight_Pointers`
+                    SET `Flight_Pointers`.`flight_pointers_rt` = 1
+                        WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                            SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                                FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+            '''
+            with self.lock:
+                self.cursor.execute(stmt_write_pointer)
 
             # ---- The time the last sync of the data occurred with the ground ----
             stmt_write_timesync = '''
@@ -687,112 +709,142 @@ class vms_db(object):
         return selected_server
 
     def sync_selected_db_table(self, selected_table_name):
-        if not os.path.exists('/opt/qs/tmp'):
-            os.mkdir('/opt/qs/tmp')
-
-        uid = pwd.getpwnam("mysql").pw_uid
-        gid = grp.getgrnam("mysql").gr_gid
-        if not os.stat('/opt/qs/tmp').st_uid == uid:
-            os.chown('/opt/qs/tmp', uid, gid)
-
-        if os.path.exists('/opt/qs/tmp/{}.csv'.format(selected_table_name)):
-            os.remove('/opt/qs/tmp/{}.csv'.format(selected_table_name))
-
         # ----Get event_key number from Flight_Pointers table ----
         # print "test"
         stmt_event_key = '''
-            SELECT `{}_event_key` FROM `stepSATdb_Flight`.`Flight_Pointers`
+            SELECT `{}_event_key`, `{}_rt` FROM `stepSATdb_Flight`.`Flight_Pointers`
                 WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
                     SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                         FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''.format(string.lower(selected_table_name))
+        '''.format(string.lower(selected_table_name), string.lower(selected_table_name))
         with self.lock:
             self.cursor.execute(stmt_event_key)
-            event_key = self.cursor.fetchone()
+            row_flight_pointers = self.cursor.fetchone()
+            event_key = row_flight_pointers['{}_event_key'].format(string.lower(selected_table_name)
+            file_flag = row_flight_pointers['{}_rt'].format(string.lower(selected_table_name)
+            
+        if file_flag == 0:
 
-        # ----Get number of records to download from Recording_Session_State table----
-        stmt_num_records = '''
-            SELECT `{}_num_records_download` FROM `stepSATdb_Flight`.`Recording_Session_State`
-                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                        FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''.format(string.lower(selected_table_name))
-        with self.lock:
-            self.cursor.execute(stmt_num_records)
-            num_records = self.cursor.fetchone()
+            if not os.path.exists('/opt/qs/tmp'):
+                os.mkdir('/opt/qs/tmp')
 
-        # ----Formulate the statement to write the selected table to the file----
-        stmt_data_write = '''
-            SELECT * FROM `stepSATdb_Flight`.`{}` WHERE event_key>={} LIMIT {} INTO OUTFILE '/opt/qs/tmp/{}.csv'
-               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
-        '''.format(selected_table_name, event_key['{}_event_key'.format(string.lower(selected_table_name))], num_records['{}_num_records_download'.format(string.lower(selected_table_name))], selected_table_name)
-        with self.lock:
-            # pylint: disable=bare-except
-            try:
-                self.cursor.execute(stmt_data_write)
-            except KeyboardInterrupt as e:
-                raise e
-            except:
-                # TODO: consider writing to syslog or message log
-                pass
+            uid = pwd.getpwnam("mysql").pw_uid
+            gid = grp.getgrnam("mysql").gr_gid
+            if not os.stat('/opt/qs/tmp').st_uid == uid:
+                os.chown('/opt/qs/tmp', uid, gid)
 
-        # ----Update the event_key pointer for next upload ----
-        stmt_highest_pointer = '''SELECT MAX(`event_key`) AS 'pointer' FROM `stepSATdb_Flight`.`{}`'''.format(selected_table_name)
-        with self.lock:
-            self.cursor.execute(stmt_highest_pointer)
-            highest_pointer = self.cursor.fetchone()
+            if os.path.exists('/opt/qs/tmp/{}.csv'.format(selected_table_name)):
+                os.remove('/opt/qs/tmp/{}.csv'.format(selected_table_name))
 
-        last_used_key = (event_key['{}_event_key'.format(string.lower(selected_table_name))] + num_records['{}_num_records_download'.format(string.lower(selected_table_name))])
-        if highest_pointer['pointer'] <= last_used_key:
-            new_event_key = highest_pointer['pointer']
-        else:
-            new_event_key = last_used_key
-
-        stmt_write_pointer = '''
-            UPDATE `stepSATdb_Flight`.`Flight_Pointers`
-                SET `Flight_Pointers`.`{}_event_key` = {}
-                    WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+            # ----Get number of records to download from Recording_Session_State table----
+            stmt_num_records = '''
+                SELECT `{}_num_records_download` FROM `stepSATdb_Flight`.`Recording_Session_State`
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''.format(string.lower(selected_table_name), new_event_key)
-        with self.lock:
-            self.cursor.execute(stmt_write_pointer)
+            '''.format(string.lower(selected_table_name))
+            with self.lock:
+                self.cursor.execute(stmt_num_records)
+                num_records = self.cursor.fetchone()
+
+            # ----Formulate the statement to write the selected table to the file----
+            stmt_data_write = '''
+                SELECT * FROM `stepSATdb_Flight`.`{}` WHERE event_key>={} LIMIT {} INTO OUTFILE '/opt/qs/tmp/{}.csv'
+                    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+            '''.format(selected_table_name, event_key['{}_event_key'.format(string.lower(selected_table_name))], num_records['{}_num_records_download'.format(string.lower(selected_table_name))], selected_table_name)
+            with self.lock:
+                # pylint: disable=bare-except
+                try:
+                    self.cursor.execute(stmt_data_write)
+                except KeyboardInterrupt as e:
+                    raise e
+                except:
+                    # TODO: consider writing to syslog or message log
+                    pass
+
+            # ----Update the event_key pointer for next upload ----
+            stmt_highest_pointer = '''SELECT MAX(`event_key`) AS 'pointer' FROM `stepSATdb_Flight`.`{}`'''.format(selected_table_name)
+            with self.lock:
+                self.cursor.execute(stmt_highest_pointer)
+                highest_pointer = self.cursor.fetchone()
+
+            last_used_key = (event_key['{}_event_key'.format(string.lower(selected_table_name))] + num_records['{}_num_records_download'.format(string.lower(selected_table_name))])
+            if highest_pointer['pointer'] <= last_used_key:
+                new_event_key = highest_pointer['pointer']
+            else:
+                new_event_key = last_used_key
+
+            # set flag to indicate file is ready for download and update pointer
+            stmt_write_pointer = '''
+                UPDATE `stepSATdb_Flight`.`Flight_Pointers`
+                    SET `Flight_Pointers`.`{}_event_key` = {}, `Flight_Pointers`.`{}_rt` = 1
+                        WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                            SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                                FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+            '''.format(string.lower(selected_table_name), new_event_key, string.lower(selected_table_name))
+            with self.lock:
+                self.cursor.execute(stmt_write_pointer)
 
         # ---- The time the last sync of the data occurred with the ground ----
-        stmt_write_timesync = '''
-            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
-        '''
-        with self.lock:
-            self.cursor.execute(stmt_write_timesync)
+            stmt_write_timesync = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
+            '''
+            with self.lock:
+                self.cursor.execute(stmt_write_timesync)
 
     def sync_recording_sessions(self):
-        if not os.path.exists('/opt/qs/tmp'):
-            os.mkdir('/opt/qs/tmp')
-
-        uid = pwd.getpwnam("mysql").pw_uid
-        gid = grp.getgrnam("mysql").gr_gid
-
-        if not os.stat('/opt/qs/tmp').st_uid == uid:
-            os.chown('/opt/qs/tmp', uid, gid)
-
-        if os.path.exists('/opt/qs/tmp/recording_sessions.csv'):
-            os.remove('/opt/qs/tmp/recording_sessions.csv')
-
-        stmt = '''
-            SELECT * FROM `stepSATdb_Flight`.`Recording_Sessions` INTO OUTFILE '/opt/qs/tmp/recording_sessions.csv'
-               FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
-            '''
-        with self.lock:
-            self.cursor.execute(stmt)
-
-        # ---- The time the last sync of the data occurred with the ground ----
-        stmt_write_timesync = '''
-            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
+        # ----Get file usage flag from Flight_Pointers table ----
+        stmt_flag_key = '''
+            SELECT `recording__sessions_rt` FROM `stepSATdb_Flight`.`Flight_Pointers`
+                WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            self.cursor.execute(stmt_write_timesync)
+            self.cursor.execute(stmt_flag_key)
+            row_flight_pointers = self.cursor.fetchone()
+            file_flag = row_flight_pointers['recording__sessions_rt']
+            
+        if file_flag == 0:
+
+            if not os.path.exists('/opt/qs/tmp'):
+                os.mkdir('/opt/qs/tmp')
+
+            uid = pwd.getpwnam("mysql").pw_uid
+            gid = grp.getgrnam("mysql").gr_gid
+
+            if not os.stat('/opt/qs/tmp').st_uid == uid:
+                os.chown('/opt/qs/tmp', uid, gid)
+
+            if os.path.exists('/opt/qs/tmp/recording_sessions.csv'):
+                os.remove('/opt/qs/tmp/recording_sessions.csv')
+
+            stmt = '''
+                SELECT * FROM `stepSATdb_Flight`.`Recording_Sessions` INTO OUTFILE '/opt/qs/tmp/recording_sessions.csv'
+                   FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
+                '''
+            with self.lock:
+                self.cursor.execute(stmt)
+
+            # set flag to indicate file is ready for download
+            stmt_write_pointer = '''
+                UPDATE `stepSATdb_Flight`.`Flight_Pointers`
+                    SET `Flight_Pointers`.`recording__sessions_rt` = 1
+                        WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                            SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                                FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+            '''.format(string.lower(selected_table_name), new_event_key, string.lower(selected_table_name))
+            with self.lock:
+                self.cursor.execute(stmt_write_pointer)
+
+            # ---- The time the last sync of the data occurred with the ground ----
+            stmt_write_timesync = '''
+                UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                    SET `Recording_Session_State`.`last_FRNCS_sync` = NOW() ORDER BY Recording_Sessions_recording_session_id DESC LIMIT 1
+            '''
+            with self.lock:
+                self.cursor.execute(stmt_write_timesync)
 
     def read_command_log(self):
         # Returns the appropriate rows of the sv db
