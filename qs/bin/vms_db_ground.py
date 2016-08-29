@@ -53,7 +53,7 @@ class vms_db_ground(object):
         """
         simple function to allow executing unusual statements
         """
-
+        print "*** EXECUTE GROUND"
         # Test if the connection to the ground DB is still alive
         if self.test_connection():
             with self.lock:
@@ -66,6 +66,9 @@ class vms_db_ground(object):
                     return self.cursor.fetchall()
                 else:
                     self.db.commit()
+                    return True
+        else:
+            return False
 
         return None
 
@@ -92,20 +95,30 @@ class vms_db_ground(object):
                 syslog.syslog(syslog.LOG_ERR, 'Error logging message "{}": {}'.format(msg, sys.exc_info()[1]))
 
     def test_connection(self):
+        print "++++ In test_connection"
         with self.lock:
             if self.db.is_connected():
+                print " #### DB CONNECTED to the Ground #### "
+                if not self.cursor:
+                    self.cursor = self.db.cursor(dictionary=True, buffered=True)
                 return True
             else:
                 try:
                     # Try to reconnect once, if that fails we probably need to
                     # wait until the connection has been re-established.
+                    if self.cursor:
+                        del self.cursor
+                    cursor = None
                     self.db.reconnect(attempts=1, delay=0)
+                    self.cursor = self.db.cursor(dictionary=True, buffered=True)
+                    print " &&&&&& Trying to Reconnect to the Ground"
 
                     # When re-establishing mysql connections you usually need
                     # to re-instantiate any cursors or prepared statements
                     self.cursor = self.db.cursor(dictionary=True)
                     return True
                 except mysql.connector.Error as err:
+                    print "-----> error connecting to the ground <-----------"
                     syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
         return False
 
@@ -129,6 +142,7 @@ class vms_db_ground(object):
                 # print 'db.close'
 
     def sync_selected_db_table(self, selected_table_name):
+        print "----> Printing Selected Table"
         selected_table_name_quotes = '`{}`'.format(selected_table_name)
         stmt = '''
             LOAD DATA LOCAL INFILE '/opt/qs/tmp/{}.csv'
@@ -143,8 +157,9 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            self._execute(stmt)
+            sync_Success = self._execute(stmt)
             self._execute(stmt_update_last_sync_time)
+            return sync_Success
 
     def sync_recording_sessions(self):
         stmt = '''
@@ -152,8 +167,17 @@ class vms_db_ground(object):
                 INTO TABLE `stepSATdb_Flight`.`Recording_Sessions` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
+        stmt_update_last_sync_time = '''
+            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''
         with self.lock:
-            self._execute(stmt)
+            sync_Success = self._execute(stmt)
+            self._execute(stmt_update_last_sync_time)
+            return sync_Success
 
     def sync_recording_session_state(self):
         stmt = '''
@@ -161,8 +185,17 @@ class vms_db_ground(object):
                 INTO TABLE `stepSATdb_Flight`.`Recording_Session_State` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
+        stmt_update_last_sync_time = '''
+            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''
         with self.lock:
-            self._execute(stmt)
+            sync_Success = self._execute(stmt)
+            self._execute(stmt_update_last_sync_time)
+            return sync_Success
 
     def sync_flight_pointers(self):
         stmt = '''
@@ -170,8 +203,17 @@ class vms_db_ground(object):
                 INTO TABLE `stepSATdb_Flight`.`Flight_Pointers` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
+        stmt_update_last_sync_time = '''
+            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''
         with self.lock:
-            self._execute(stmt)
+            sync_Success = self._execute(stmt)
+            self._execute(stmt_update_last_sync_time)
+            return sync_Success
 
     def sync_system_applications(self):
         stmt = '''
@@ -194,6 +236,7 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
                     )
         '''
+        print stmt
         with self.lock:
             commands = self._execute(stmt)
         return commands
@@ -214,6 +257,8 @@ class vms_db_ground(object):
 
     def add_ground_command_log(self, ground_commands):
         # adds new row(s) to ground db
+        print "----> In add_ground_command_log, db_ground"
+        print ground_commands
         if ground_commands:
             for row in ground_commands:
                 stmt = '''
@@ -221,7 +266,7 @@ class vms_db_ground(object):
                         `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`) VALUES (%(time_of_command)s,%(Recording_Sessions_recording_session_id)s,%(command)s,%(command_state)s,%(command_data)s,%(priority)s,%(source)s,%(read_from_sv)s,1)
                         ON DUPLICATE KEY UPDATE `Command_Log`.`pushed_to_ground` = 1 , `Command_Log`.`command_state` = %(command_state)s
                 '''
-                # print stmt
+                print stmt
                 with self.lock:
                     self._execute(stmt, row)
 

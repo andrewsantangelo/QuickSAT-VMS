@@ -163,13 +163,14 @@ class vms(object):
         self.threads.append(t)
 
         # recording_sessions uses command_syslog_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_recording_sessions, 35)
+        t = periodic_timer.PeriodicTimer(self.sync_vms_recording_sessions, 35)
         self.threads.append(t)
 
         # Systems_Applications uses retrieve_command_log_poll_rate
         #    Update the ground station Systems_Application table - this tells the ground station the state of the applications on the SV.
         #
-        t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
+        #t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
+        t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
         self.threads.append(t)
 
         # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
@@ -261,7 +262,7 @@ class vms(object):
             elif cmd['command'] == 'SYNC_SYSTEM_MESSAGES':
                 self.sync_system_messages(cmd)
             elif cmd['command'] == 'SYNC_RECORDING_SESSIONS':
-                self.sync_recording_sessions(cmd)
+                self.sync_vms_recording_sessions(cmd)
             else:
                 self.handle_unknown_command(cmd['command'], cmd)
 
@@ -441,11 +442,13 @@ class vms(object):
 
         # pylint: disable=bare-except
         if self.db_ground:
+            print "in DB GROUND CHECK"
             # This just indicates whether or not the ground connection has
             # ever been established.  Connection checking and reconnection
             # attempts are handled in the vms_db_ground class.
             return True
         else:
+            print "creating new instance"
             try:
                 self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
                 print "connected to ground db"
@@ -461,14 +464,22 @@ class vms(object):
     """
 
     def sync_flight_data_object(self, cmd=None):
+        print "****** IN sync_flight_data_object"
+        #  generate the export file
+        #      NOTE - this db module will only generate the file if FIRST TIME RUN
+        #             or the file was already downloaded
+        sync_to_ground = self.db.sync_selected_db_table('Flight_Data_Object')
+        #  Download the export file IF there is a connection to the ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data object test"
                 # pylint: disable=bare-except
                 try:
-                    self.db.sync_selected_db_table('Flight_Data_Object')
-                    self.db_ground.sync_selected_db_table('Flight_Data_Object')
+                    if sync_to_ground:
+                        ground_Sync = self.db_ground.sync_selected_db_table('Flight_Data_Object')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('Flight_Data_Object')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except KeyboardInterrupt as e:
@@ -478,14 +489,21 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_flight_data_binary(self, cmd=None):
+        print "****** IN sync_flight_data_binary"
+        #  generate the export file
+        #      NOTE - this db module will only generate the file if FIRST TIME RUN
+        #             or the file was already downloaded
+        sync_to_ground = self.db.sync_selected_db_table('Flight_Data_Binary')
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data binary test"
                 # pylint: disable=bare-except
                 try:
-                    self.db.sync_selected_db_table('Flight_Data_Binary')
-                    self.db_ground.sync_selected_db_table('Flight_Data_Binary')
+                    if sync_to_ground:
+                        ground_Sync = self.db_ground.sync_selected_db_table('Flight_Data_Binary')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('Flight_Data_Binary')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except:
@@ -493,14 +511,24 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_flight_data(self, cmd=None):
+        print "****** IN sync_flight_data"
+        #  generate the export file
+        #      NOTE - this db module will only generate the file if FIRST TIME RUN
+        #             or the file was already downloaded
+        sync_to_ground = self.db.sync_selected_db_table('Flight_Data')
+        print "Value for sync to ground"
+        print sync_to_ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "flight data test"
                 # pylint: disable=bare-except
                 try:
-                    self.db.sync_selected_db_table('Flight_Data')
-                    self.db_ground.sync_selected_db_table('Flight_Data')
+                    if sync_to_ground:
+                        print "---> Syncing Flight_Data to ground"
+                        ground_Sync = self.db_ground.sync_selected_db_table('Flight_Data')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('Flight_Data')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except:
@@ -508,30 +536,50 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self, cmd=None):
+        print "****** IN sync_system_messages"
+        #  generate the export file
+        #      NOTE - this db module will only generate the file if FIRST TIME RUN
+        #             or the file was already downloaded
+        sync_to_ground = self.db.sync_selected_db_table('System_Messages')
+        print "Value for sync to ground"
+        print sync_to_ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
-                print "system message test"
+                # print "system message test"
                 # pylint: disable=bare-except
                 try:
-                    self.db.sync_selected_db_table('System_Messages')
-                    self.db_ground.sync_selected_db_table('System_Messages')
+                    if sync_to_ground:
+                        print "---> Syncing System_Messages to ground"
+                        ground_Sync = self.db_ground.sync_selected_db_table('System_Messages')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('System_Messages')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
-    def sync_recording_sessions(self, cmd=None):
+    def sync_vms_recording_sessions(self, cmd=None):
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
-                print "recording sessions test"
-                self.db.sync_recording_sessions()
-                self.db_ground.sync_recording_sessions()
-                print "writing recording session state"
-                self.db_ground.sync_recording_session_state()
-                self.db_ground.sync_flight_pointers()
+                print "Syncing Recording Session Information"
+                sync_to_ground = self.db.sync_recording_sessions()
+                if sync_to_ground:
+                    ground_Sync = self.db_ground.sync_recording_sessions()
+                    if ground_Sync:
+                        self.db.reset_sync_flag('Recording_Sessions')
+                sync_to_ground = self.db.sync_recording_session_state()
+                if sync_to_ground:
+                    ground_Sync = self.db_ground.sync_recording_session_state()
+                    if ground_Sync:
+                        self.db.reset_sync_flag('Recording_Session_State')
+                sync_to_ground = self.db.sync_flight_pointers()
+                if sync_to_ground:
+                    ground_Sync = self.db_ground.sync_flight_pointers()
+                    if ground_Sync:
+                        self.db.reset_sync_flag('Flight_Pointers')
                 if cmd:
                     self.db.complete_commands(cmd, True)
 
@@ -546,6 +594,7 @@ class vms(object):
                 print "sync command log with the ground"
                 # try:
                 commands = self.db.read_command_log()
+                print commands
                 self.db_ground.add_ground_command_log(commands)  # write to ground db with pushed_to_ground set to true
                 self.db.update_sv_command_log(commands)  # rewrite to sv db with pushed_to_ground set to true
                 if cmd:
@@ -558,11 +607,14 @@ class vms(object):
     def sync_command_log_ground_to_sv(self, cmd=None):
         # sync from ground to sv
         # run pending commands
+        print "****** IN sync command ground to SV"
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 # try:
+                print "++++ Ground Command connection made ++++ "
                 ground_commands = self.db_ground.read_command_log()
+                print ground_commands
                 self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
                 self.db_ground.update_ground_command_log(ground_commands)  # rewrite to ground db with read_from_sv set to true
 
@@ -575,14 +627,21 @@ class vms(object):
                 #           traceback.format_exception(*sys.exc_info()))
 
     def sync_linkstar_duplex_state(self, cmd=None):
+        print "****** IN sync_linkstar_duplex_state"
+        #  generate the export file
+        #      NOTE - this db module will only generate the file if FIRST TIME RUN
+        #             or the file was already downloaded
+        sync_to_ground = self.db.sync_selected_db_table('LinkStar_Duplex_State')
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
-                print "sync_linkstar_duplex test"
+                # print "sync_linkstar_duplex test"
                 # pylint: disable=bare-except
                 try:
-                    self.db.sync_selected_db_table('LinkStar_Duplex_State')
-                    self.db_ground.sync_selected_db_table('LinkStar_Duplex_State')
+                    if sync_to_ground:
+                        ground_Sync = self.db_ground.sync_selected_db_table('LinkStar_Duplex_State')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('LinkStar_Duplex_State')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except:
@@ -590,14 +649,24 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_location_table(self, cmd=None):
+        print " ~~~~~~ in sync_location_table"
+        #  generate the export file
+        #      NOTE - this db module will only generate the file if FIRST TIME RUN
+        #             or the file was already downloaded
+        sync_to_ground = self.db.sync_selected_db_table('Location_Data')
+        print "Value for sync to ground"
+        print sync_to_ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
-                print "sync location Data information with the ground"
+                # print "sync location Data information with the ground"
                 # pylint: disable=bare-except
                 try:
-                    self.db.sync_selected_db_table('Location_Data')
-                    self.db_ground.sync_selected_db_table('Location_Data')
+                    if sync_to_ground:
+                        print "In ground sync LOCATION"
+                        ground_Sync = self.db_ground.sync_selected_db_table('Location_Data')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('Location_Data')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except:
@@ -605,6 +674,7 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def update_system_applications_state_to_gnd(self, cmd=None):
+        print "****** IN update_system_applications_state_to_gnd"
         # read from sv db
         # write to ground db
         self.linkstar.get_radio_status()

@@ -200,7 +200,7 @@ class linkstar(object):
                 self.db.commit()
 
     def connect_to_ground(self, status):
-        print "connect_to_ground entered"
+        print "connect_to_ground entered --> Looking from LinkStar.py"
 
         # look up server address and connect method (eth or linkstar), and current connection state
 
@@ -260,17 +260,22 @@ class linkstar(object):
         #print method
 
         #print connected
+        print "---> CALL STATE VALUE"
+        print status['CALL STATE']
         if not connected:
             syslog.syslog(syslog.LOG_DEBUG, 'Server connection = {}, method = {}, call state = {}'.format(connected, method, status['CALL STATE']))
             if method == 'Ethernet':
                 connected = False
                 with open('/sys/class/net/eth0/carrier') as f:
                     connected = (1 == int(f.read()))
+                    print "ethernet connection status ---->"
             elif method == 'LinkStar':
                 with self.radio.lock:
                     #print 'service available: {}'.format(status['SERVICE AVAILABLE'])
-                    if status['CALL STATE'] == 'TIA_PPP_MDT': 
+                    print "** LinkStarDuplex connection status ---->"
+                    if "CALLINPROG" in status['CALL STATE']: 
                         connected = True
+                        print "*********************** SUCCESS ***************************"
                     elif status['CALL STATE'] == 'IDLE' or not status['CALL STATE']:
                         (avail, rssi, roaming) = self.radio.is_service_available()
                         syslog.syslog(syslog.LOG_DEBUG, 'LinkStar service avail = {}, rssi = {}, roaming = {}'.format(avail, rssi, roaming))
@@ -284,15 +289,17 @@ class linkstar(object):
                                 time.sleep(10)
             else:
                 self._log_msg('Unsupported ground connection method: {}'.format(method))
-
+        print connected
         if connected:
             print 'pinging'
             if method == 'Ethernet':
                 server_state = ping(server_address, method)
+                print "***** Server State --->"
+                print server_state
             elif method == 'LinkStar':
                 with self.radio.lock:
                     server_state = ping(server_address, method)
-            #print 'server state = {}'.format(server_state)
+            print 'server state = {}'.format(server_state)
 
             #update db with newly discovered ground connection state
             stmt = '''
