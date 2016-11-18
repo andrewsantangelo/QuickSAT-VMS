@@ -31,7 +31,7 @@ def write_json_data(data, filename):
     f.close()
 
 
-def unknown_command_wrapper(db_args, cmd):
+def unknown_command_wrapper(db_args, cmd, thread_run_event):
     status = 5
 
     local_db = vms_db.vms_db(**db_args)
@@ -56,12 +56,15 @@ def unknown_command_wrapper(db_args, cmd):
 
         if cmd_process_func:
             try:
-                result = cmd_process_func(local_db, subcmd[1], cmd['data'])
+                result = cmd_process_func(local_db, subcmd[1], cmd['data'], thread_run_event)
                 status = int(not result)
                 local_db.complete_commands(cmd, result)
             except KeyboardInterrupt as e:
                 raise e
             except:
+                # Ensure that the threads are not stuck paused
+                thread_run_event.set()
+
                 status = 4
                 local_db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
     else:
@@ -74,7 +77,7 @@ def unknown_command_wrapper(db_args, cmd):
 
 
 class vms(object):
-    # pylint: disable=unused-argument
+    # pylint: disable=unused-argument,too-many-instance-attributes
     def __init__(self, vms_address, vms_port, vms_cert, vms_username, vms_password, vms_dbname, flight_stream_flag, **kwargs):
         # Save the arguments
         self.args = {
@@ -120,6 +123,9 @@ class vms(object):
         # Define ls_comm_flight_stream
         if flight_stream_flag == 'ENABLED':
             self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
+
+        # Some mechanisms to allow threads to be paused by a command handler
+        self.thread_run_event = multiprocessing.Event()
 
         # Keep track of the unknown command processes to ensure they aren't
         # deleted by the garbage collector.
@@ -169,7 +175,7 @@ class vms(object):
         # Systems_Applications uses retrieve_command_log_poll_rate
         #    Update the ground station Systems_Application table - this tells the ground station the state of the applications on the SV.
         #
-        #t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
+        # t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
         t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
         self.threads.append(t)
 
@@ -206,12 +212,16 @@ class vms(object):
         syslog.closelog()
 
     def radio_status(self):
+        # Check if this thread should be running or paused
+        self.thread_run_event.wait()
+
         # Have the VMS DB connection retrieve and update the radio status
         self.linkstar.get_radio_status()
         # Keep the poll rate constant for now, it shouldn't change
         return 39
 
     def run(self):
+        self.thread_run_event.set()
         for t in self.threads:
             t.start()
 
@@ -377,6 +387,11 @@ class vms(object):
             self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def update_linkstar_location_tables(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         #  Moves LinkStar Duplex State Location info into location table
         #    This is done to keep all location information in one consistent spot.
         #    Also, the goal is to keep location data frequency consistent, since
@@ -399,7 +414,10 @@ class vms(object):
         self.db.start_command(cmd)
 
         # Now spawn a separate process to handle the command
-        proc = multiprocessing.Process(target=unknown_command_wrapper, name=cmd['command'], args=(self.args['vms'], cmd))
+        proc = multiprocessing.Process(
+            target=unknown_command_wrapper,
+            name=cmd['command'],
+            args=(self.args['vms'], cmd, self.thread_run_event))
         proc.start()
 
         msg = 'command process cmd "{0.name}" started (pid:{0.pid})'
@@ -464,6 +482,11 @@ class vms(object):
     """
 
     def sync_flight_data_object(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         print "****** IN sync_flight_data_object"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
@@ -489,6 +512,11 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_flight_data_binary(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         print "****** IN sync_flight_data_binary"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
@@ -511,6 +539,11 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_flight_data(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         print "****** IN sync_flight_data"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
@@ -536,6 +569,11 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_system_messages(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         print "****** IN sync_system_messages"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
@@ -561,6 +599,11 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_vms_recording_sessions(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
@@ -584,6 +627,11 @@ class vms(object):
                     self.db.complete_commands(cmd, True)
 
     def sync_command_log_sv_to_ground(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         # sync from sv to ground
         # read from sv db
         # write to ground db
@@ -605,6 +653,11 @@ class vms(object):
                 #        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_command_log_ground_to_sv(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         # sync from ground to sv
         # run pending commands
         print "****** IN sync command ground to SV"
@@ -627,6 +680,11 @@ class vms(object):
                 #           traceback.format_exception(*sys.exc_info()))
 
     def sync_linkstar_duplex_state(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         print "****** IN sync_linkstar_duplex_state"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
@@ -649,6 +707,11 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def sync_location_table(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         print " ~~~~~~ in sync_location_table"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
@@ -674,6 +737,11 @@ class vms(object):
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
     def update_system_applications_state_to_gnd(self, cmd=None):
+        # Check if this thread should be running or paused (only if it wasn't
+        # called as a command handler)
+        if not cmd:
+            self.thread_run_event.wait()
+
         print "****** IN update_system_applications_state_to_gnd"
         # read from sv db
         # write to ground db
@@ -690,36 +758,3 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
-
-    def upload_app_from_gnd(self, cmd):
-        self.linkstar.get_radio_status()
-        if self.db.check_test_connection():
-            if self.check_db_ground_connection():
-                # pylint: disable=bare-except
-                try:
-                    print "Uploading app from GND to Vehicle"
-                    #  read file
-                    #  Set app state to 80 ONLY after file is completely uploaded
-                    application_id = cmd['command_data']
-                    self.db.change_system_application_state(self, application_id, 80, "GATEWAY Storage", 1)
-                    if cmd:
-                        self.db.complete_commands(cmd, True)
-                except:
-                    if cmd:
-                        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
-
-    def delete_from_gateway(self, cmd):
-        # This deletes apps/VMs with a status of 80 - APPS/VMs cannot be deleted if they are running, status > 100.
-        #    Failed apps with status greater than 100 can be reset to a status of 80.
-        #    Locked apps CANNOT be deleted.
-        # This command can be acted upon without communicating with the ground station.
-        # pylint: disable=bare-except
-        try:
-            print "Deleting APP/VM from Gateway"
-            application_id = cmd['command_data']
-            self.db.change_system_application_state(self, application_id, 50, "GROUND Storage", 0)
-            if cmd:
-                self.db.complete_commands(cmd, True)
-        except:
-            if cmd:
-                self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))

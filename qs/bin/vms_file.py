@@ -106,7 +106,7 @@ class VmsFile(object):
 
 
 # pylint: disable=invalid-name
-def process(db, cmd, data):
+def process(db, cmd, data, run):
     """
     The function required for the vms class to call this one to handle custom
     VMS file functions.
@@ -138,7 +138,16 @@ def process(db, cmd, data):
     if cmd == 'upload_application':
         info = db.get_app_info(ident=data)
         if info:
+            # Pause the threads in DB Command Processing while the rsync is
+            # being performed
+            run.clear()
+
             result = VMS_GROUND.get_app(info)
+
+            # Release the threads in DB Command Processing now that the rsync
+            # is complete (or failed)
+            run.set()
+
             if result:
                 db.set_application_state(info, 80, 'GATEWAY Storage', None)
         else:
@@ -179,5 +188,11 @@ if __name__ == '__main__':
         testcmd = sys.argv[1]
     if len(sys.argv) > 2:
         appid = sys.argv[2]
-    testresult = process(test_db, testcmd, appid)
+
+    # Some placeholder pause/release objects to make the process() function happy
+    # pylint: disable=wrong-import-order
+    import threading
+    evt = threading.Event()
+
+    testresult = process(test_db, testcmd, appid, evt)
     print('cmd {},{} = {}'.format(testcmd, appid, testresult))
