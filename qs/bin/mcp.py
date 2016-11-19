@@ -376,12 +376,12 @@ class McpTarget(object):
 
 
 # pylint: disable=invalid-name
-def process(db, cmd, data):
+def process(db, cmd, data, run):
     """
     The function required for the vms class to call this one to handle custom
     MCP functions.
     """
-    # pylint: disable=too-many-branches,global-statement,protected-access,too-many-statements
+    # pylint: disable=too-many-branches,global-statement,protected-access,too-many-statements,too-many-locals,unused-argument
     syslog.syslog(syslog.LOG_INFO, 'MCP processing command {}:{}'.format(cmd, data))
 
     global MCP

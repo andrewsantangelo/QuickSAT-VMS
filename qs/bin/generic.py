@@ -65,7 +65,7 @@ class GenericHandler(object):
         return True
 
 
-def process(db, cmd, data):
+def process(db, cmd, data, run):
     """
     This function is required to exist in a python module to be able to be
     executed as a unknown command handler.  3 arguments are supplied by the
@@ -83,11 +83,17 @@ def process(db, cmd, data):
               is natively a string in the DB, but can be interpreted as
               desired in this function.
 
+        run:  An Event which can be cleared to pause some threads in DB command
+              processing, this is especially useful during file uploads.  Most
+              command handlers can safely ignore this argument.  The vms_file.py
+              handler uses this extra arguments.
+
     This function should return True or False to indicate if the command is
     able to be handled successfully or not.  If an exception occurs the
     command will be marked as "Failed" and the exception traceback will be
     inserted into the "Log_Messages" table.
     """
+    # pylint: disable=unused-argument
 
     # If the handler class instance has not yet been created, create it now
     global HANDLER
