@@ -106,8 +106,8 @@ class vms_db_ground(object):
                 try:
                     # Try to reconnect once, if that fails we probably need to
                     # wait until the connection has been re-established.
-                    if self.cursor:
-                        del self.cursor
+                    #if self.cursor:
+                    del self.cursor
                     cursor = None
                     self.db.reconnect(attempts=1, delay=0)
                     self.cursor = self.db.cursor(dictionary=True, buffered=True)
@@ -157,9 +157,15 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            sync_Success = self._execute(stmt)
-            self._execute(stmt_update_last_sync_time)
-            return sync_Success
+            try:
+                sync_Success = self._execute(stmt)
+                #self._execute(stmt_update_last_sync_time)
+                return sync_Success
+            except mysql.connector.Error as err:
+                print "-----> error connecting to the ground, sync_selected_db_table <-----------"
+                syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                return False
+
 
     def sync_recording_sessions(self):
         stmt = '''
@@ -175,9 +181,14 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            sync_Success = self._execute(stmt)
-            self._execute(stmt_update_last_sync_time)
-            return sync_Success
+            try:
+                sync_Success = self._execute(stmt)
+                #self._execute(stmt_update_last_sync_time)
+                return sync_Success
+            except mysql.connector.Error as err:
+                print "-----> error connecting to the ground, sync_recording_sessions <-----------"
+                syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                return False
 
     def sync_recording_session_state(self):
         stmt = '''
@@ -193,9 +204,14 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            sync_Success = self._execute(stmt)
-            self._execute(stmt_update_last_sync_time)
-            return sync_Success
+            try:
+                sync_Success = self._execute(stmt)
+                #self._execute(stmt_update_last_sync_time)
+                return sync_Success
+            except mysql.connector.Error as err:
+                print "-----> error connecting to the ground, sync_recording_session_state <-----------"
+                syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                return False
 
     def sync_flight_pointers(self):
         stmt = '''
@@ -211,9 +227,14 @@ class vms_db_ground(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
         '''
         with self.lock:
-            sync_Success = self._execute(stmt)
-            self._execute(stmt_update_last_sync_time)
-            return sync_Success
+            try:
+                sync_Success = self._execute(stmt)
+                # self._execute(stmt_update_last_sync_time)
+                return sync_Success
+            except mysql.connector.Error as err:
+                print "-----> error connecting to the ground, sync_flight_pointers <-----------"
+                syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                return False
 
     def sync_system_applications(self):
         stmt = '''
@@ -222,7 +243,12 @@ class vms_db_ground(object):
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
         with self.lock:
-            self._execute(stmt)
+            try:
+                self._execute(stmt)
+            except mysql.connector.Error as err:
+                print "-----> error connecting to the ground, sync_system_applications <-----------"
+                syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                return False
 
     def read_command_log(self):
         # Returns the appropriate row(s) of the ground db
@@ -238,8 +264,13 @@ class vms_db_ground(object):
         '''
         print stmt
         with self.lock:
-            commands = self._execute(stmt)
-        return commands
+            try:
+                commands = self._execute(stmt)
+                return commands
+            except mysql.connector.Error as err:
+                print "-----> error connecting to the ground, read_command_log <-----------"
+                syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                return False
 
     def update_ground_command_log(self, ground_commands):
         # Writes updated row(s)to the ground db command log
@@ -253,7 +284,12 @@ class vms_db_ground(object):
                             AND `Command_log`.`time_of_command` = %(time_of_command)s
                 '''
                 with self.lock:
-                    self._execute(stmt, row)
+                    try:
+                        self._execute(stmt, row)
+                    except mysql.connector.Error as err:
+                        print "-----> error connecting to the ground, update_ground_command_log <-----------"
+                        syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                        return False
 
     def add_ground_command_log(self, ground_commands):
         # adds new row(s) to ground db
@@ -268,7 +304,12 @@ class vms_db_ground(object):
                 '''
                 print stmt
                 with self.lock:
-                    self._execute(stmt, row)
+                    try:
+                        self._execute(stmt, row)
+                    except mysql.connector.Error as err:
+                        print "-----> error connecting to the ground, add_ground_command_log <-----------"
+                        syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                        return False
 
     def get_application_info(self, app_id):
         app_stmt = '''
@@ -298,4 +339,10 @@ class vms_db_ground(object):
                             WHERE `System_Applications`.`application_id` = %(application_id)s
                 '''
                 with self.lock:
-                    self._execute(stmt, row)
+                    try:
+                        self._execute(stmt, row)
+                    except mysql.connector.Error as err:
+                        print "-----> error connecting to the ground, update_system_applications_gnd <-----------"
+                        syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
+                        return False
+

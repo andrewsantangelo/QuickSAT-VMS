@@ -483,6 +483,29 @@ class vms_db(object):
         else:
             return None
 
+    def ls_simplexstx3_installed_state(self)
+        return self.retrieve_linkstar_simplexstx3_info('radio_installed')
+
+    def retrieve_linkstar_simplex_info(self, column):
+        # Get the requested linkstar simplex radio information
+        stmt = '''
+            SELECT `LinkStar_Simplex_Information`.`{}`
+                FROM `stepSATdb_Flight`.`LinkStar_Simplex_Information`
+        '''.format(column)
+
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        if row:
+            return row[column]
+        else:
+            return None
+
     def update_ls_location_info(self):
         # Get the current recording_session_id
         stmt = '''

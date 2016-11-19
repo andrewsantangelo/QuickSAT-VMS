@@ -131,6 +131,35 @@ class vms(object):
         syslog.openlog()
         syslog.syslog(syslog.LOG_NOTICE, 'Started')
 
+        # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
+        ls_duplex_installed = self.db.ls_duplex_installed_state()
+
+        # Determine if LinkStar Simplex STX Radio is installed - first get the data if the radio is installed
+        #ls_simplexstx3_installed = = self.db.ls_simplexstx3_installed_state()
+
+        # IF the duplex radio is installed, send the duplex information to the ground periodically
+        if ls_duplex_installed == 1:
+            print "DUPLEX INSTALLED -  SYNC STATE"
+            # Linkstar duplex state pushing uses command_log_rate
+            t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, 49)
+            self.threads.append(t)
+
+        # IF the duplex radio is installed, update the location information between the radio and location tables
+        if ls_duplex_installed == 1:
+            # For now location information update rate is fixed at every 60 sec
+            print "DUPLEX INSTALLED -  UPDATE LOCATION *****"
+            print "update location loop"
+            t = periodic_timer.PeriodicTimer(self.update_linkstar_location_tables, 53)
+            self.threads.append(t)
+
+        # IF the duplex radio is installed, sync the location with the ground
+        if ls_duplex_installed == 1:
+            # System_Messages uses command_syslog_push_rate
+            print "DUPLEX INSTALLED -  SYNC LOCATION *****"
+            print "sync location"
+            t = periodic_timer.PeriodicTimer(self.sync_location_table, 22)
+            self.threads.append(t)
+
         # For now, use the command poll rate to run the "command log monitor" function
         t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_log_poll_rate())
         self.threads.append(t)
@@ -163,39 +192,22 @@ class vms(object):
         self.threads.append(t)
 
         # recording_sessions uses command_syslog_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_vms_recording_sessions, 35)
+        t = periodic_timer.PeriodicTimer(self.sync_vms_recording_sessions, 37)
         self.threads.append(t)
 
         # Systems_Applications uses retrieve_command_log_poll_rate
         #    Update the ground station Systems_Application table - this tells the ground station the state of the applications on the SV.
         #
-        #t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
-        t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
+        t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
         self.threads.append(t)
 
-        # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
+        #t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
+        #self.threads.append(t)
 
-        ls_duplex_installed = self.db.ls_duplex_installed_state()
-
-        # IF the duplex radio is installed, send the duplex information to the ground periodically
-        if ls_duplex_installed == 1:
-            # Linkstar duplex state pushing uses command_log_rate
-            t = periodic_timer.PeriodicTimer(self.sync_linkstar_duplex_state, self.db.retrieve_command_log_poll_rate())
-            self.threads.append(t)
-
-        # IF the duplex radio is installed, update the location information between the radio and location tables
-        if ls_duplex_installed == 1:
-            # For now location information update rate is fixed at every 60 sec
-            print "update location loop"
-            t = periodic_timer.PeriodicTimer(self.update_linkstar_location_tables, 55)
-            self.threads.append(t)
-
-        # IF the duplex radio is installed, sync the location with the ground
-        if ls_duplex_installed == 1:
-            # System_Messages uses command_syslog_push_rate
-            print "sync location"
-            t = periodic_timer.PeriodicTimer(self.sync_location_table, 75)
-            self.threads.append(t)
+        # IF the SIMPLEX, LinkStar-STX3 is installed, beacon create a data packet group and transmit to the ground
+        #if ls_simplexstx3_installed == 1:
+            #t=periodic_timer.PeriodicTimer(self.transmit_packet_group, self.db.retrieve_packet_group_xmit_rate())
+            #self.threads.append(t)
 
     def __del__(self):
         for t in self.threads:
@@ -439,6 +451,9 @@ class vms(object):
             'dbname': self.args['vms_ground']['dbname']
         }
         print self.args['vms_ground']
+        
+        # Check if signal is lost.  If it is, delete db_ground
+        #
 
         # pylint: disable=bare-except
         if self.db_ground:
@@ -462,6 +477,10 @@ class vms(object):
     """
     Most functions that use the radio will need to check the radio status first
     """
+
+    def remove_db_ground_connection(self):
+        del self.db_ground
+        self.db_ground = None
 
     def sync_flight_data_object(self, cmd=None):
         print "****** IN sync_flight_data_object"
@@ -487,6 +506,8 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def sync_flight_data_binary(self, cmd=None):
         print "****** IN sync_flight_data_binary"
@@ -509,6 +530,8 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def sync_flight_data(self, cmd=None):
         print "****** IN sync_flight_data"
@@ -516,7 +539,7 @@ class vms(object):
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
         #             or the file was already downloaded
         sync_to_ground = self.db.sync_selected_db_table('Flight_Data')
-        print "Value for sync to ground"
+        print "Value for sync to ground - flight data"
         print sync_to_ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
@@ -534,6 +557,8 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def sync_system_messages(self, cmd=None):
         print "****** IN sync_system_messages"
@@ -541,7 +566,7 @@ class vms(object):
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
         #             or the file was already downloaded
         sync_to_ground = self.db.sync_selected_db_table('System_Messages')
-        print "Value for sync to ground"
+        print "Value for sync to ground - system messages"
         print sync_to_ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
@@ -559,6 +584,8 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def sync_vms_recording_sessions(self, cmd=None):
         self.linkstar.get_radio_status()
@@ -582,6 +609,8 @@ class vms(object):
                         self.db.reset_sync_flag('Flight_Pointers')
                 if cmd:
                     self.db.complete_commands(cmd, True)
+        else:
+            self.remove_db_ground_connection()
 
     def sync_command_log_sv_to_ground(self, cmd=None):
         # sync from sv to ground
@@ -603,6 +632,8 @@ class vms(object):
                 # except:
                 #    if cmd:
                 #        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def sync_command_log_ground_to_sv(self, cmd=None):
         # sync from ground to sv
@@ -625,9 +656,11 @@ class vms(object):
                 #    if cmd:
                 #       self.db.complete_commands(cmd, False,
                 #           traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def sync_linkstar_duplex_state(self, cmd=None):
-        print "****** IN sync_linkstar_duplex_state"
+        print "******>>>> IN sync_linkstar_duplex_state"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
         #             or the file was already downloaded
@@ -647,14 +680,16 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def sync_location_table(self, cmd=None):
-        print " ~~~~~~ in sync_location_table"
+        print " ~~~~~~>> in sync_location_table  <<----------"
         #  generate the export file
         #      NOTE - this db module will only generate the file if FIRST TIME RUN
         #             or the file was already downloaded
         sync_to_ground = self.db.sync_selected_db_table('Location_Data')
-        print "Value for sync to ground"
+        print "Value for sync to ground - location table"
         print sync_to_ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
@@ -672,6 +707,8 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def update_system_applications_state_to_gnd(self, cmd=None):
         print "****** IN update_system_applications_state_to_gnd"
@@ -690,6 +727,8 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def upload_app_from_gnd(self, cmd):
         self.linkstar.get_radio_status()
@@ -707,6 +746,8 @@ class vms(object):
                 except:
                     if cmd:
                         self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+        else:
+            self.remove_db_ground_connection()
 
     def delete_from_gateway(self, cmd):
         # This deletes apps/VMs with a status of 80 - APPS/VMs cannot be deleted if they are running, status > 100.
