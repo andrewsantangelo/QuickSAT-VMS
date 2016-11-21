@@ -24,7 +24,10 @@ import grp
 import mysql.connector
 
 # Disable some pylint warnings that I don't care about
-# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments,too-many-locals
+# pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments,too-many-locals,too-many-lines,too-many-statements
+#
+# there are mix of print syntaxes, so just ignore the () on some of them
+# pylint: disable=superfluous-parens
 #
 # TEMPORARY:
 # pylint: disable=missing-docstring
@@ -483,8 +486,9 @@ class vms_db(object):
         else:
             return None
 
-    def ls_simplexstx3_installed_state(self)
-        return self.retrieve_linkstar_simplexstx3_info('radio_installed')
+    def ls_simplexstx3_installed_state(self):
+        # return self.retrieve_linkstar_simplexstx3_info('radio_installed')
+        return self.retrieve_linkstar_simplex_info('radio_installed')
 
     def retrieve_linkstar_simplex_info(self, column):
         # Get the requested linkstar simplex radio information
@@ -775,7 +779,7 @@ class vms_db(object):
         print event_key
         print file_flag
         if file_flag == 0 and event_key > 0:
-        
+
             print "Writing table ****"
 
             if not os.path.exists('/opt/qs/tmp'):
@@ -807,7 +811,7 @@ class vms_db(object):
                 SELECT * FROM `stepSATdb_Flight`.`{}` WHERE event_key>={} LIMIT {} INTO OUTFILE '/opt/qs/tmp/{}.csv'
                     FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
             '''.format(selected_table_name, event_key, num_records['{}_num_records_download'.format(string.lower(selected_table_name))], selected_table_name)
-            #print stmt_data_write
+            # print stmt_data_write
             with self.lock:
                 # pylint: disable=bare-except
                 try:
@@ -820,7 +824,7 @@ class vms_db(object):
 
             # ----Update the event_key pointer for next upload ----
             stmt_highest_pointer = '''SELECT MAX(`event_key`) AS 'pointer' FROM `stepSATdb_Flight`.`{}`'''.format(selected_table_name)
-            #print stmt_highest_pointer
+            # print stmt_highest_pointer
             with self.lock:
                 self.cursor.execute(stmt_highest_pointer)
                 highest_pointer = self.cursor.fetchone()
@@ -839,7 +843,7 @@ class vms_db(object):
                             SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                                 FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
             '''.format(string.lower(selected_table_name), new_event_key, string.lower(selected_table_name))
-            # print stmt_write_pointer 
+            # print stmt_write_pointer
             with self.lock:
                 self.cursor.execute(stmt_write_pointer)
 
@@ -860,17 +864,17 @@ class vms_db(object):
             return True
 
     def reset_sync_flag(self, selected_table_name):
-            # set flag to indicate file is ready to be deleted and a new one written; the old file was written to the ground
-            stmt_update_flag = '''
-                UPDATE `stepSATdb_Flight`.`Flight_Pointers`
-                    SET `Flight_Pointers`.`{}_rt` = 0
-                        WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
-                            SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                                FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-            '''.format(string.lower(selected_table_name))
-            # print stmt_update_flag 
-            with self.lock:
-                self.cursor.execute(stmt_update_flag)
+        # set flag to indicate file is ready to be deleted and a new one written; the old file was written to the ground
+        stmt_update_flag = '''
+            UPDATE `stepSATdb_Flight`.`Flight_Pointers`
+                SET `Flight_Pointers`.`{}_rt` = 0
+                    WHERE `Flight_Pointers`.`Recording_Sessions_recording_session_id`=(
+                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        '''.format(string.lower(selected_table_name))
+        # print stmt_update_flag
+        with self.lock:
+            self.cursor.execute(stmt_update_flag)
 
     def sync_recording_sessions(self):
         # ----Get file usage flag from Flight_Pointers table ----
@@ -1134,4 +1138,3 @@ class vms_db(object):
             except mysql.connector.Error as err:
                 print("MySQL Error: {}".format(err))
                 syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
-

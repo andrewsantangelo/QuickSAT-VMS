@@ -106,9 +106,9 @@ class vms_db_ground(object):
                 try:
                     # Try to reconnect once, if that fails we probably need to
                     # wait until the connection has been re-established.
-                    #if self.cursor:
+                    # if self.cursor:
                     del self.cursor
-                    cursor = None
+                    self.cursor = None
                     self.db.reconnect(attempts=1, delay=0)
                     self.cursor = self.db.cursor(dictionary=True, buffered=True)
                     print " &&&&&& Trying to Reconnect to the Ground"
@@ -149,23 +149,22 @@ class vms_db_ground(object):
                 INTO TABLE `stepSATdb_Flight`.{} FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''.format(selected_table_name, selected_table_name_quotes)
-        stmt_update_last_sync_time = '''
-            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
-                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''
+        # stmt_update_last_sync_time = '''
+        #     UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+        #         SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+        #             WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+        #                 SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+        #                     FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        # '''
         with self.lock:
             try:
                 sync_Success = self._execute(stmt)
-                #self._execute(stmt_update_last_sync_time)
+                # self._execute(stmt_update_last_sync_time)
                 return sync_Success
             except mysql.connector.Error as err:
                 print "-----> error connecting to the ground, sync_selected_db_table <-----------"
                 syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
                 return False
-
 
     def sync_recording_sessions(self):
         stmt = '''
@@ -173,17 +172,17 @@ class vms_db_ground(object):
                 INTO TABLE `stepSATdb_Flight`.`Recording_Sessions` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
-        stmt_update_last_sync_time = '''
-            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
-                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''
+        # stmt_update_last_sync_time = '''
+        #     UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+        #         SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+        #             WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+        #                 SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+        #                     FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        # '''
         with self.lock:
             try:
                 sync_Success = self._execute(stmt)
-                #self._execute(stmt_update_last_sync_time)
+                # self._execute(stmt_update_last_sync_time)
                 return sync_Success
             except mysql.connector.Error as err:
                 print "-----> error connecting to the ground, sync_recording_sessions <-----------"
@@ -196,17 +195,17 @@ class vms_db_ground(object):
                 INTO TABLE `stepSATdb_Flight`.`Recording_Session_State` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
-        stmt_update_last_sync_time = '''
-            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
-                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''
+        # stmt_update_last_sync_time = '''
+        #     UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+        #         SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+        #             WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+        #                 SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+        #                     FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        # '''
         with self.lock:
             try:
                 sync_Success = self._execute(stmt)
-                #self._execute(stmt_update_last_sync_time)
+                # self._execute(stmt_update_last_sync_time)
                 return sync_Success
             except mysql.connector.Error as err:
                 print "-----> error connecting to the ground, sync_recording_session_state <-----------"
@@ -219,13 +218,13 @@ class vms_db_ground(object):
                 INTO TABLE `stepSATdb_Flight`.`Flight_Pointers` FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
                 ESCAPED BY '\\\\' LINES TERMINATED BY '\n'
         '''
-        stmt_update_last_sync_time = '''
-            UPDATE `stepSATdb_Flight`.`Recording_Session_State`
-                SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
-                    WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
-        '''
+        # stmt_update_last_sync_time = '''
+        #     UPDATE `stepSATdb_Flight`.`Recording_Session_State`
+        #         SET `Recording_Session_State`.`last_FRNCS_sync` = NOW()
+        #             WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+        #                 SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+        #                     FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
+        # '''
         with self.lock:
             try:
                 sync_Success = self._execute(stmt)
@@ -345,4 +344,3 @@ class vms_db_ground(object):
                         print "-----> error connecting to the ground, update_system_applications_gnd <-----------"
                         syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
                         return False
-

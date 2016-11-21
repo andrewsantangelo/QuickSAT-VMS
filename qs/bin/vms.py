@@ -77,7 +77,7 @@ def unknown_command_wrapper(db_args, cmd, thread_run_event):
 
 
 class vms(object):
-    # pylint: disable=unused-argument,too-many-instance-attributes
+    # pylint: disable=unused-argument,too-many-instance-attributes,too-many-statements
     def __init__(self, vms_address, vms_port, vms_cert, vms_username, vms_password, vms_dbname, flight_stream_flag, **kwargs):
         # Save the arguments
         self.args = {
@@ -141,7 +141,7 @@ class vms(object):
         ls_duplex_installed = self.db.ls_duplex_installed_state()
 
         # Determine if LinkStar Simplex STX Radio is installed - first get the data if the radio is installed
-        #ls_simplexstx3_installed = = self.db.ls_simplexstx3_installed_state()
+        # ls_simplexstx3_installed = = self.db.ls_simplexstx3_installed_state()
 
         # IF the duplex radio is installed, send the duplex information to the ground periodically
         if ls_duplex_installed == 1:
@@ -211,13 +211,13 @@ class vms(object):
         t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
         self.threads.append(t)
 
-        #t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
-        #self.threads.append(t)
+        # t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
+        # self.threads.append(t)
 
         # IF the SIMPLEX, LinkStar-STX3 is installed, beacon create a data packet group and transmit to the ground
-        #if ls_simplexstx3_installed == 1:
-            #t=periodic_timer.PeriodicTimer(self.transmit_packet_group, self.db.retrieve_packet_group_xmit_rate())
-            #self.threads.append(t)
+        # if ls_simplexstx3_installed == 1:
+        #   t=periodic_timer.PeriodicTimer(self.transmit_packet_group, self.db.retrieve_packet_group_xmit_rate())
+        #   self.threads.append(t)
 
     def __del__(self):
         for t in self.threads:
@@ -473,7 +473,7 @@ class vms(object):
             'dbname': self.args['vms_ground']['dbname']
         }
         print self.args['vms_ground']
-        
+
         # Check if signal is lost.  If it is, delete db_ground
         #
 
@@ -838,4 +838,3 @@ class vms(object):
         except:
             if cmd:
                 self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
-
