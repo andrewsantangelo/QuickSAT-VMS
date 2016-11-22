@@ -356,13 +356,8 @@ class vms_db(object):
     def set_application_state(self, app, state, status, msg):
         # syslog.syslog(syslog.LOG_DEBUG, 'Updating app status "{}"/{}/{}/{}'.format(str(app), state, status, msg))
         stmt = '''
-            UPDATE `stepSATdb_Flight`.`System_Applications`
-                SET `System_Applications`.`application_state`=%(state)s,
-                    `System_Applications`.`application_status`=%(status)s
-                WHERE `System_Applications`.`application_id`=%(id)s
-                    AND `System_Applications`.`Configuration_Parts_part_key`=%(part)s
-                    AND `System_Applications`.`Configuration_Parts_Configuration_configuration_key`=%(config)s
-                    AND `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key`=%(mission)s
+            INSERT INTO `stepSATdb_Flight`.`System_Applications` (`application_state`, `application_status`)
+                VALUES (%(state)s, %(status)s )
         '''
         # Add the state and status message to the app so that we can use named
         # parameters in the query
@@ -843,7 +838,7 @@ class vms_db(object):
                             SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                                 FROM `stepSATdb_Flight`.`Recording_Sessions` LIMIT 1)
             '''.format(string.lower(selected_table_name), new_event_key, string.lower(selected_table_name))
-            # print stmt_write_pointer
+            print stmt_write_pointer
             with self.lock:
                 self.cursor.execute(stmt_write_pointer)
 

@@ -205,9 +205,6 @@ class vms(object):
         #    Update the ground station Systems_Application table - this tells the ground station the state of the applications on the SV.
         #
 
-        t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
-
-        # t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, self.db.retrieve_command_log_poll_rate())
         t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
         self.threads.append(t)
 
@@ -786,16 +783,20 @@ class vms(object):
             self.thread_run_event.wait()
 
         print "****** IN update_system_applications_state_to_gnd"
-        # read from sv db
-        # write to ground db
+        
+        sync_to_ground = self.db.sync_selected_db_table('System_Applications_State')
+        print sync_to_ground
+        
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 # pylint: disable=bare-except
                 try:
-                    print "system_applications sv to ground function"
-                    system_applications_data = self.db.read_system_applications()
-                    self.db_ground.update_system_applications_gnd(system_applications_data)  # write to ground db the latest state of the applications
+                    if sync_to_ground:
+                        print "In ground sync Application State"
+                        ground_Sync = self.db_ground.sync_selected_db_table('System_Applications_State')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('System_Applications_State')
                     if cmd:
                         self.db.complete_commands(cmd, True)
                 except:
