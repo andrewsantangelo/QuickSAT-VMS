@@ -164,26 +164,33 @@ class vms_db(object):
         Returns all database information regarding a single application.  The
         info can be retrieved either with a unique app name or a unique app id.
         """
+
+        # If an application does not have a valid state, assume it is "50" - "On Ground"
         stmt = '''
             SELECT `System_Applications`.`application_id` AS 'id',
                     `System_Applications`.`application_name` AS 'name',
-                    `System_Applications`.`application_state` AS 'state',
+                    ifnull((
+                        SELECT `System_Applications_State`.`application_state`
+                            FROM `stepSATdb_Flight`.`System_Applications_State`
+                            WHERE `System_Applications`.`application_id` = `System_Applications_State`.`application_id`
+                            ORDER BY `System_Applications_State`.`event_key` DESC LIMIT 1
+                    ), 50) AS 'state',
                     `System_Applications`.`Configuration_Parts_part_key` AS 'part',
                     `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS 'config',
                     `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS 'mission',
                     `System_Applications`.`application_filename` AS 'application_filename',
-                    `Parameter_ID_Table`.`parameter_id` AS 'param',
-                    `Parameter_ID_Table`.`type` AS 'param_type',
-                    `Virtual_Machines`.`virtual_machine_id` AS 'vm',
-                    `Virtual_Machines`.`vm_os` AS 'vm_os',
-                    `Virtual_Machines`.`virtual_machine_name` AS 'vm_name',
-                    `Virtual_Machines`.`vm_core` AS 'vm_core'
+                    `pid`.`parameter_id` AS 'param',
+                    `pid`.`type` AS 'param_type',
+                    `vm`.`virtual_machine_id` AS 'vm',
+                    `vm`.`vm_os` AS 'vm_os',
+                    `vm`.`virtual_machine_name` AS 'vm_name',
+                    `vm`.`vm_core` AS 'vm_core'
                 FROM `stepSATdb_Flight`.`System_Applications`
-                LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
-                ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
-                LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
-                ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
-                WHERE `System_Applications`.`{}` = {}
+                LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table` AS `pid`
+                ON `System_Applications`.`application_id` = `pid`.`System_Applications_application_id`
+                LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines` AS `vm`
+                ON `System_Applications`.`virtual_machine_id` = `vm`.`virtual_machine_id`
+                WHERE `System_Applications`.`{0}` = '{1}'
         '''
         if ident:
             stmt = stmt.format('application_id', ident)
@@ -216,27 +223,32 @@ class vms_db(object):
         stmt = '''
             SELECT `System_Applications`.`application_id` AS 'id',
                     `System_Applications`.`application_name` AS 'name',
-                    `System_Applications`.`application_state` AS 'state',
+                    ifnull((
+                        SELECT `System_Applications_State`.`application_state`
+                            FROM `stepSATdb_Flight`.`System_Applications_State`
+                            WHERE `System_Applications`.`application_id` = `System_Applications_State`.`application_id`
+                            ORDER BY `System_Applications_State`.`event_key` DESC LIMIT 1
+                    ), 50) AS 'state',
                     `System_Applications`.`Configuration_Parts_part_key` AS 'part',
                     `System_Applications`.`Configuration_Parts_Configuration_configuration_key` AS 'config',
                     `System_Applications`.`Configuration_Parts_Configuration_Mission_mission_key` AS 'mission',
-                    `Parameter_ID_Table`.`parameter_id` AS 'param',
-                    `Parameter_ID_Table`.`type` AS 'param_type',
-                    `Virtual_Machines`.`virtual_machine_id` AS 'vm',
-                    `Virtual_Machines`.`vm_os` AS 'vm_os',
-                    `Virtual_Machines`.`virtual_machine_name` AS 'vm_name',
-                    `Virtual_Machines`.`vm_core` AS 'vm_core'
+                    `pid`.`parameter_id` AS 'param',
+                    `pid`.`type` AS 'param_type',
+                    `vm`.`virtual_machine_id` AS 'vm',
+                    `vm`.`vm_os` AS 'vm_os',
+                    `vm`.`virtual_machine_name` AS 'vm_name',
+                    `vm`.`vm_core` AS 'vm_core'
                 FROM `stepSATdb_Flight`.`System_Applications`
-                LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table`
-                ON `System_Applications`.`application_id` = `Parameter_ID_Table`.`System_Applications_application_id`
-                LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
-                ON `Virtual_Machines`.`virtual_machine_id` = `System_Applications`.`virtual_machine_id`
-                WHERE `Virtual_Machines`.`vm_board_part_key` =
-                    (SELECT `Virtual_Machines`.`vm_board_part_key`
+                LEFT JOIN `stepSATdb_Flight`.`Parameter_ID_Table` AS `pid`
+                ON `System_Applications`.`application_id` = `pid`.`System_Applications_application_id`
+                LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines` AS `vm`
+                ON `System_Applications`.`virtual_machine_id` = `vm`.`virtual_machine_id`
+                WHERE `vm`.`vm_board_part_key` =
+                    (SELECT `vm`.`vm_board_part_key`
                     FROM `stepSATdb_Flight`.`System_Applications`
-                    LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines`
-                    ON `System_Applications`.`virtual_machine_id` = `Virtual_Machines`.`virtual_machine_id`
-                    WHERE `System_Applications`.`{}` = {})
+                    LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines` AS `vm`
+                    ON `System_Applications`.`virtual_machine_id` = `vm`.`virtual_machine_id`
+                    WHERE `System_Applications`.`{0}` = {1})
         '''
         if ident:
             stmt = stmt.format('application_id', ident)
@@ -356,12 +368,15 @@ class vms_db(object):
     def set_application_state(self, app, state, status, msg):
         # syslog.syslog(syslog.LOG_DEBUG, 'Updating app status "{}"/{}/{}/{}'.format(str(app), state, status, msg))
         stmt = '''
-            INSERT INTO `stepSATdb_Flight`.`System_Applications` (`application_state`, `application_status`)
-                VALUES (%(state)s, %(status)s )
+            INSERT INTO `stepSATdb_Flight`.`System_Applications_State` (`application_id`, `application_state`, `application_status`)
+                VALUES (%(id)s, %(state)s, %(status)s )
         '''
         # Add the state and status message to the app so that we can use named
         # parameters in the query
-        params = app.copy()
+        if isinstance(app, dict):
+            params = app.copy()
+        else:
+            params = {'id': app}
         params['state'] = state
         params['status'] = status
 
@@ -1123,13 +1138,16 @@ class vms_db(object):
         # changes the state of the System_Application
         stmt = '''
             UPDATE `stepSATdb_Flight`.`System_Applications`
-                SET `System_Applications`.`application_state` = app_state, `System_Applications`.`application_status` = app_status, `System_Applications`.`locked_flag` = app_locked, `System_Applications`.`target_board_installed` = app_installed
-                    WHERE `System_Applications`.`application_id` = app_id
+                SET `System_Applications`.`locked_flag` = %s, `System_Applications`.`target_board_installed` = %s
+                    WHERE `System_Applications`.`application_id` = %s
         '''
         with self.lock:
             try:
-                self.cursor.execute(stmt)
+                self.cursor.execute(stmt, (app_locked, app_installed, app_id))
                 self.db.commit()
             except mysql.connector.Error as err:
                 print("MySQL Error: {}".format(err))
                 syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        # Then update the app state
+        self.set_application_state(app_id, app_state, app_status, None)

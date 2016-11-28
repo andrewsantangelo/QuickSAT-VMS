@@ -783,10 +783,10 @@ class vms(object):
             self.thread_run_event.wait()
 
         print "****** IN update_system_applications_state_to_gnd"
-        
+
         sync_to_ground = self.db.sync_selected_db_table('System_Applications_State')
         print sync_to_ground
-        
+
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
