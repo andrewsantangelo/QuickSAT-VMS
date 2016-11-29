@@ -662,25 +662,24 @@ class vms(object):
         if not cmd:
             self.thread_run_event.wait()
 
-        # sync from sv to ground
-        # read from sv db
-        # write to ground db
-        # update sv db
+        sync_to_ground = self.db.sync_selected_db_table('Command_Log')
+        print "Value for sync to ground - Command_Log"
+        print sync_to_ground
         self.linkstar.get_radio_status()
         if self.db.check_test_connection():
             if self.check_db_ground_connection():
                 print "sync command log with the ground"
-                # try:
-                commands = self.db.read_command_log()
-                print commands
-                self.db_ground.add_ground_command_log(commands)  # write to ground db with pushed_to_ground set to true
-                self.db.update_sv_command_log(commands)  # rewrite to sv db with pushed_to_ground set to true
-                if cmd:
-                    self.db.complete_commands(cmd, True)
-                print "command log sv to ground test"
-                # except:
-                #    if cmd:
-                #        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+                try:
+                    if sync_to_ground:
+                        print "---> Syncing Command_Log to ground"
+                        ground_Sync = self.db_ground.sync_selected_db_table('Command_Log')
+                        if ground_Sync:
+                            self.db.reset_sync_flag('Command_Log')
+                    if cmd:
+                        self.db.complete_commands(cmd, True)
+                except:
+                    if cmd:
+                        self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
         else:
             self.remove_db_ground_connection()
 
@@ -701,7 +700,6 @@ class vms(object):
                 ground_commands = self.db_ground.read_command_log()
                 print ground_commands
                 self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
-                self.db_ground.update_ground_command_log(ground_commands)  # rewrite to ground db with read_from_sv set to true
 
                 if cmd:
                     self.db.complete_commands(cmd, True)

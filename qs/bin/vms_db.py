@@ -1053,7 +1053,7 @@ class vms_db(object):
         stmt = '''
             SELECT *
                 FROM `stepSATdb_Flight`.`Command_Log`
-                    WHERE `Command_Log`.`pushed_to_ground`!='1'
+                    WHERE `Command_Log`.`command_state`='Pending-Ground'
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions`)
@@ -1070,9 +1070,23 @@ class vms_db(object):
             for row in commands:
                 stmt = '''
                     INSERT INTO `stepSATdb_Flight`.`Command_Log` (`time_of_command`, `Recording_Sessions_recording_session_id`,`command`,
-                        `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`)
-                        VALUES (%(time_of_command)s,%(Recording_Sessions_recording_session_id)s,%(command)s,%(command_state)s,%(command_data)s,%(priority)s,%(source)s,1, 1)
+                        `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`, `command_id`)
+                        VALUES (%(time_of_command)s,%(Recording_Sessions_recording_session_id)s,%(command)s,%(command_state)s,%(command_data)s,%(priority)s,%(source)s,1, 1, %(command_id)s)
                         ON DUPLICATE KEY UPDATE `Command_Log`.`read_from_sv` = 1 , `Command_Log`.`command_state` = %(command_state)s
+                '''
+                with self.lock:
+                    try:
+                        self.cursor.execute(stmt, row)
+                        self.db.commit()
+                    except mysql.connector.Error as err:
+                        print("MySQL Error: {}".format(err))
+                        syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                # Add new command state -> Pending
+                stmt = '''
+                    INSERT INTO `stepSATdb_Flight`.`Command_Log` (`time_of_command`, `Recording_Sessions_recording_session_id`,`command`,
+                        `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`, `command_id`)
+                        VALUES (NOW(),%(Recording_Sessions_recording_session_id)s,%(command)s,'Pending',%(command_data)s,%(priority)s,%(source)s,1, 1, %(command_id)s)
+                        ON DUPLICATE KEY UPDATE `Command_Log`.`read_from_sv` = 1 , `Command_Log`.`command_state` = 'Pending'
                 '''
                 with self.lock:
                     try:
