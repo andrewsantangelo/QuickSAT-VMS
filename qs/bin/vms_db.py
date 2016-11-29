@@ -275,7 +275,8 @@ class vms_db(object):
                     `Command_Log`.`command_data` AS data,
                     `Command_Log`.`Recording_Sessions_recording_session_id` AS session,
                     `Command_Log`.`source` AS source,
-                    `Command_Log`.`priority` AS priority
+                    `Command_Log`.`priority` AS priority,
+                    `Command_Log`.`command_id` AS command_id
                 FROM `stepSATdb_Flight`.`Command_Log`
                 WHERE `Command_Log`.`command_state`='Pending'
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
@@ -297,16 +298,14 @@ class vms_db(object):
         return commands
 
     def start_command(self, command):
-        # Update the "pushed_to_ground" flag to let the "Processing" state be
-        # updated on the ground if the command log is synced before this
-        # command completes.
+        # Insert the new command state
         stmt = '''
-            UPDATE `stepSATdb_Flight`.`Command_Log`
-                SET `Command_Log`.`command_state` = 'Processing',
-                    `Command_Log`.`pushed_to_ground` = 0
-                WHERE `Command_Log`.`time_of_command`=%(time)s
-                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=%(session)s
+             INSERT INTO `stepSATdb_Flight`.`Command_Log` (`time_of_command`, `Recording_Sessions_recording_session_id`,`command`,
+                `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`, `command_id`)
+                VALUES (NOW(),%(session)s,%(command)s,'Processing',%(data)s,%(priority)s,%(source)s,1, 1, %(command_id)s)
+                        ON DUPLICATE KEY UPDATE `Command_Log`.`read_from_sv` = 1 , `Command_Log`.`command_state` = 'Processing'
         '''
+
         with self.lock:
             try:
                 self.cursor.execute(stmt, command)
@@ -327,32 +326,32 @@ class vms_db(object):
             else:
                 log = 'Command Success'
         else:
-            state = 'Fail'
+            state = 'FAIL'
             if message:
                 log = 'Command Failed:\n' + message
             else:
                 log = 'Command Failed'
 
         # transform the command list
-        cmd_keys = ['time', 'id', 'data', 'session']
+        cmd_keys = ['time', 'id', 'data', 'session', 'command', 'data', 'priority', 'source', 'command_id']
         if isinstance(commands, dict) and set(cmd_keys).issubset(set(commands.keys())):
             # if the command is a dictionary with keys of 'time', 'id', 'data',
             # and 'session', turn this into a list with one element.
-            update_cmds = [(state, commands['time'], commands['session'])]
+            update_cmds = [(commands['session'], commands['command'], state, commands['data'], commands['priority'], commands['source'], commands['command_id'])]
         elif isinstance(commands, dict):
-            update_cmds = [(state, c['time'], c['session']) for c in itertools.chain(commands.items())]
+            update_cmds = [(commands['session'], commands['command'], state, commands['data'], commands['priority'], commands['source'], commands['command_id'], c) for c in itertools.chain(commands.items())]
         else:  # if isinstance(commands, list):
-            update_cmds = [(state, c['time'], c['session']) for c in commands]
+            update_cmds = [(commands['session'], commands['command'], state, commands['data'], commands['priority'], commands['source'], commands['command_id']) for c in commands]
         syslog.syslog(syslog.LOG_DEBUG, 'Updating stepSATdb_Flight.Command_Log with commands "{}"'.format(str(update_cmds)))
 
         # Now that the command is complete, update the "pushed_to_ground" flag
         # to let the final commmad state be sent to the ground.
+
         stmt = '''
-            UPDATE `stepSATdb_Flight`.`Command_Log`
-                SET `Command_Log`.`command_state`=%s,
-                    `Command_Log`.`pushed_to_ground` = 0
-                WHERE `Command_Log`.`time_of_command`=%s
-                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=%s
+             INSERT INTO `stepSATdb_Flight`.`Command_Log` (`time_of_command`, `Recording_Sessions_recording_session_id`,`command`,
+                `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`, `command_id`)
+                VALUES (NOW(),%s,%s,%s,%s,%s,%s,1, 1, %s)
+                        ON DUPLICATE KEY UPDATE `Command_Log`.`read_from_sv` = 1 , `Command_Log`.`command_state` = 'FAIL'
         '''
 
         with self.lock:
