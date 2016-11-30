@@ -267,6 +267,20 @@ class vms_db(object):
             return None
 
     def all_pending_commands(self):
+        # Get the current recording_session_id
+        stmt = '''
+                SELECT *
+                    FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
+             '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row_recording_session = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
         print "entering vms_db.all_pending_commands()"
         stmt = '''
             SELECT `Command_Log`.`command` AS command,
@@ -284,7 +298,7 @@ class vms_db(object):
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
                     )
         '''
-        # print stmt
+        print stmt
         with self.lock:
             try:
                 self.cursor.execute(stmt)
@@ -297,12 +311,13 @@ class vms_db(object):
         stmt = '''
             UPDATE `stepSATdb_Flight`.`Command_Log`
                 SET `Command_Log`.`read_from_sv` = 1
-                    WHERE `Command_Log`.`Recording_Sessions_recording_session_id` = %(Recording_Sessions_recording_session_id)s
+                    WHERE `Command_Log`.`Recording_Sessions_recording_session_id` = %(recording_session_id)s
                     AND `Command_Log`.`command_state`='Pending'
                 '''
+        print stmt
         with self.lock:
             try:
-                self.cursor.execute(stmt)
+                self.cursor.execute(stmt, row_recording_session)
                 self.db.commit()
             except mysql.connector.Error as err:
                 print("MySQL Error: {}".format(err))
@@ -1162,38 +1177,39 @@ class vms_db(object):
                 syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
         return system_applications_data
 
-    def change_system_application_state(self, app_id, app_state, app_status, app_locked, app_installed):
-        # changes the state of the System_Application
-        stmt = '''
-            UPDATE `stepSATdb_Flight`.`System_Applications`
-                SET `System_Applications`.`locked_flag` = %s, `System_Applications`.`target_board_installed` = %s
-                    WHERE `System_Applications`.`application_id` = %s
-        '''
-        with self.lock:
-            try:
-                self.cursor.execute(stmt, (app_locked, app_installed, app_id))
-                self.db.commit()
-            except mysql.connector.Error as err:
-                print("MySQL Error: {}".format(err))
-                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
-
-        # Then update the app state
-        self.set_application_state(app_id, app_state, app_status, None)
+#    def change_system_application_state(self, app_id, app_state, app_status, app_locked, app_installed):
+#        # changes the state of the System_Application
+#        stmt = '''
+#            UPDATE `stepSATdb_Flight`.`System_Applications`
+#                SET `System_Applications`.`locked_flag` = %s, `System_Applications`.`target_board_installed` = %s
+#                    WHERE `System_Applications`.`application_id` = %s
+#        '''
+#        with self.lock:
+#            try:
+#                self.cursor.execute(stmt, (app_locked, app_installed, app_id))
+#                self.db.commit()
+#            except mysql.connector.Error as err:
+#                print("MySQL Error: {}".format(err))
+#                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+#
+#        # Then update the app state
+#        self.set_application_state(app_id, app_state, app_status, None)
         
     def get_last_command_date(self, command_state_value):
         # Get the date of the last Pending-Ground command
         stmt = '''
-            SELECT * FROM `Command_Log` WHERE `command_state` = `{}` ORDER BY `event_key` DESC LIMIT 1
-        '''.format(string.lower(command_state_value))
+            SELECT `Command_Log`.`time_of_command` FROM `Command_Log` WHERE `Command_Log`.`command_state` = '{}' ORDER BY `event_key` DESC LIMIT 1
+        '''.format(command_state_value)
+        print stmt
+        row = ''
         with self.lock:
             try:
                 self.cursor.execute(stmt)
                 row = self.cursor.fetchone()
-                # print commands
             except mysql.connector.Error as err:
                 print("MySQL Error: {}".format(err))
                 syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
-                
+
         if row:
             return row['time_of_command']
         else:
