@@ -697,13 +697,15 @@ class vms(object):
             if self.check_db_ground_connection():
                 # try:
                 print "++++ Ground Command connection made ++++ "
-                ground_commands = self.db_ground.read_command_log()
-                print ground_commands
-                self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
+                datetime_last_command = self.db.get_last_command_date('Pending-Ground')
+                if datetime_last_command:
+                    ground_commands = self.db_ground.read_command_log(datetime_last_command)
+                    print ground_commands
+                    self.db.add_sv_command_log(ground_commands)  # write to sv db with read_from_sv set to true
 
-                if cmd:
-                    self.db.complete_commands(cmd, True)
-                print "command log ground to sv test"
+                    if cmd:
+                        self.db.complete_commands(cmd, True)
+                    print "command log ground to sv test"
                 # except:
                 #    if cmd:
                 #       self.db.complete_commands(cmd, False,

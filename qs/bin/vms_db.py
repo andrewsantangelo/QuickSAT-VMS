@@ -278,7 +278,7 @@ class vms_db(object):
                     `Command_Log`.`priority` AS priority,
                     `Command_Log`.`command_id` AS command_id
                 FROM `stepSATdb_Flight`.`Command_Log`
-                WHERE `Command_Log`.`command_state`='Pending'
+                WHERE `Command_Log`.`command_state`='Pending' AND `Command_Log`.`read_from_sv`=0
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
@@ -289,6 +289,21 @@ class vms_db(object):
             try:
                 self.cursor.execute(stmt)
                 commands = self.cursor.fetchall()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                
+        # Set all Pending Commands to read_from_sv = 1
+        stmt = '''
+            UPDATE `stepSATdb_Flight`.`Command_Log`
+                SET `Command_Log`.`read_from_sv` = 1
+                    WHERE `Command_Log`.`Recording_Sessions_recording_session_id` = %(Recording_Sessions_recording_session_id)s
+                    AND `Command_Log`.`command_state`='Pending'
+                '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                self.db.commit()
             except mysql.connector.Error as err:
                 print("MySQL Error: {}".format(err))
                 syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
@@ -1047,22 +1062,22 @@ class vms_db(object):
                 self.cursor.execute(stmt_write_timesync)
         return True
 
-    def read_command_log(self):
-        # Returns the appropriate rows of the sv db
-        stmt = '''
-            SELECT *
-                FROM `stepSATdb_Flight`.`Command_Log`
-                    WHERE `Command_Log`.`command_state`='Pending-Ground'
-                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
-                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
-                            FROM `stepSATdb_Flight`.`Recording_Sessions`)
-        '''
-        with self.lock:
-            self.cursor.execute(stmt)
-            commands = self.cursor.fetchall()
-            # print commands
-        return commands
-
+#    def read_command_log(self):
+#        # Returns the appropriate rows of the sv db
+#        stmt = '''
+#            SELECT *
+#                FROM `stepSATdb_Flight`.`Command_Log`
+#                    WHERE `Command_Log`.`command_state`='Pending-Ground'
+#                    AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
+#                        SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+#                            FROM `stepSATdb_Flight`.`Recording_Sessions`)
+#        '''
+#        with self.lock:
+#            self.cursor.execute(stmt)
+#            commands = self.cursor.fetchall()
+#            # print commands
+#        return commands
+#
     def add_sv_command_log(self, commands):
         # adds row(s) to sv command_log
         if commands:
@@ -1084,7 +1099,7 @@ class vms_db(object):
                 stmt = '''
                     INSERT INTO `stepSATdb_Flight`.`Command_Log` (`time_of_command`, `Recording_Sessions_recording_session_id`,`command`,
                         `command_state`, `command_data`, `priority`, `source`, `read_from_sv`, `pushed_to_ground`, `command_id`)
-                        VALUES (NOW(),%(Recording_Sessions_recording_session_id)s,%(command)s,'Pending',%(command_data)s,%(priority)s,%(source)s,1, 1, %(command_id)s)
+                        VALUES (NOW(),%(Recording_Sessions_recording_session_id)s,%(command)s,'Pending',%(command_data)s,%(priority)s,%(source)s,0, 0, %(command_id)s)
                         ON DUPLICATE KEY UPDATE `Command_Log`.`read_from_sv` = 1 , `Command_Log`.`command_state` = 'Pending'
                 '''
                 with self.lock:
@@ -1164,3 +1179,23 @@ class vms_db(object):
 
         # Then update the app state
         self.set_application_state(app_id, app_state, app_status, None)
+        
+    def get_last_command_date(self, command_state_value):
+        # Get the date of the last Pending-Ground command
+        stmt = '''
+            SELECT * FROM `Command_Log` WHERE `command_state` = `{}` ORDER BY `event_key` DESC LIMIT 1
+        '''.format(string.lower(command_state_value))
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                # print commands
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                
+        if row:
+            return row['time_of_command']
+        else:
+            return None
+

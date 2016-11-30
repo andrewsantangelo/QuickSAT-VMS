@@ -249,13 +249,13 @@ class vms_db_ground(object):
                 syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
                 return False
 
-    def read_command_log(self):
+    def read_command_log(self, datetime_last_command):
         # Returns the appropriate row(s) of the ground db
         stmt = '''
             SELECT *
                 FROM `stepSATdb_Flight`.`Command_Log`
-                WHERE `Command_Log`.`command_state`='Pending'
-                    AND `Command_Log`.`read_from_sv`!='1'
+                WHERE `Command_Log`.`command_state`='Pending-Ground'
+                    AND `Command_Log`.`time_of_command` > datetime_last_command
                     AND `Command_Log`.`Recording_Sessions_recording_session_id`=(
                         SELECT MAX(`Recording_Sessions`.`recording_session_id`)
                             FROM `stepSATdb_Flight`.`Recording_Sessions`
