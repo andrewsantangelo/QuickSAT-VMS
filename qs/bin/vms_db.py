@@ -190,7 +190,7 @@ class vms_db(object):
                 ON `System_Applications`.`application_id` = `pid`.`System_Applications_application_id`
                 LEFT JOIN `stepSATdb_Flight`.`Virtual_Machines` AS `vm`
                 ON `System_Applications`.`virtual_machine_id` = `vm`.`virtual_machine_id`
-                WHERE `System_Applications`.`{0}` = '{1}'
+                WHERE `System_Applications`.`{0}` = {1}
         '''
         if ident:
             stmt = stmt.format('application_id', ident)
@@ -198,6 +198,8 @@ class vms_db(object):
             stmt = stmt.format('application_name', repr(name))
         else:
             stmt = None
+
+        print stmt
 
         if stmt:
             with self.lock:

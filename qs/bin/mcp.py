@@ -459,7 +459,7 @@ def process(db, cmd, data, run):
             #
             status = 'On Host - VM Configured'
             msg = 'Success - VM/App "{}" installed'.format(new_app[0]['part'])
-            db.set_application_state(new_app[0], 195, status, msg)
+            # db.set_application_state(new_app[0], 195, status, msg)
 
     elif cmd == 'remove_vmapp':
         # get a list of all apps on the same board as mcp
@@ -496,7 +496,7 @@ def process(db, cmd, data, run):
             #
             status = 'GATEWAY Storage'
             msg = 'Success - VM/App "{}" removed from Host'.format(remove_app[0]['part'])
-            db.set_application_state(remove_app[0], 80, status, msg)
+            # db.set_application_state(remove_app[0], 80, status, msg)
     elif cmd == 'pause_vm':
         # Find the name of the VM that should be paused
         name = db.get_app_info(ident=data)['part']
