@@ -597,8 +597,8 @@ class vms(object):
     def sync_system_messages(self, cmd=None):
         # Check if this thread should be running or paused (only if it wasn't
         # called as a command handler)
-        if not cmd:
-            self.thread_run_event.wait()
+        #if not cmd:
+        #    self.thread_run_event.wait()
 
         print "****** IN sync_system_messages"
         #  generate the export file
@@ -659,8 +659,6 @@ class vms(object):
     def sync_command_log_sv_to_ground(self, cmd=None):
         # Check if this thread should be running or paused (only if it wasn't
         # called as a command handler)
-        if not cmd:
-            self.thread_run_event.wait()
 
         sync_to_ground = self.db.sync_selected_db_table('Command_Log')
         print "Value for sync to ground - Command_Log"
@@ -686,8 +684,6 @@ class vms(object):
     def sync_command_log_ground_to_sv(self, cmd=None):
         # Check if this thread should be running or paused (only if it wasn't
         # called as a command handler)
-        if not cmd:
-            self.thread_run_event.wait()
 
         # sync from ground to sv
         # run pending commands
@@ -748,8 +744,6 @@ class vms(object):
         print " ~~~~~~>> in sync_location_table  <<----------"
         # Check if this thread should be running or paused (only if it wasn't
         # called as a command handler)
-        if not cmd:
-            self.thread_run_event.wait()
 
         print " ~~~~~~ in sync_location_table"
         #  generate the export file
@@ -780,8 +774,6 @@ class vms(object):
     def update_system_applications_state_to_gnd(self, cmd=None):
         # Check if this thread should be running or paused (only if it wasn't
         # called as a command handler)
-        if not cmd:
-            self.thread_run_event.wait()
 
         print "****** IN update_system_applications_state_to_gnd"
 

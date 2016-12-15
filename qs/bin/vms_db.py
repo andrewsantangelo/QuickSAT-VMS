@@ -423,6 +423,35 @@ class vms_db(object):
         if msg:
             self._log_msg(msg)
 
+    def get_application_state(self, app, state, status, msg):
+        # syslog.syslog(syslog.LOG_DEBUG, 'Updating app status "{}"/{}/{}/{}'.format(str(app), state, status, msg))
+        stmt = '''
+            SELECT `System_Applications_State`.`application_state` FROM `stepSATdb_Flight`.`System_Applications_State` WHERE `application_id` = %(id)s 
+               ORDER BY `System_Applications_State`.`event_key` DESC LIMIT 1
+        '''
+        # Add the state and status message to the app so that we can use named
+        # parameters in the query
+        if isinstance(app, dict):
+            params = app.copy()
+        else:
+            params = {'id': app}
+        params['state'] = state
+        params['status'] = status
+
+        with self.lock:
+            try:
+                self.cursor.execute(stmt, params)
+                app_state = self.cursor.fetchall()
+                self.db.commit()
+                return app_state
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        # Log more detail
+        if msg:
+            self._log_msg(msg)
+
     def retrieve_command_logs(self, session=None, timestamp=None):
         return self.retrieve_data('Command_Log', 'time_of_command', session, timestamp)
 

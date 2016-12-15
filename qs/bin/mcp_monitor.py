@@ -76,7 +76,7 @@ if __name__ == '__main__':
     db_group.add_argument('--dbname', default='stepSATdb_Flight', help='name of the QS/VMS database')
     db_group.add_argument('--username', default='root', help='username for the QS/VMS database')
     db_group.add_argument('--no-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --username)')
-    db_group.add_argument('--password', default='quicksat1', help='password for the QS/VMS database')
+    db_group.add_argument('--password', default='Quicksat!1', help='password for the QS/VMS database')
     db_group.add_argument('--no-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --password)')
 
     args = parser.parse_args()
@@ -137,5 +137,7 @@ if __name__ == '__main__':
             err_msg = 'MCP status = {}'.format(status)
             db.set_application_state(info, 200, msg, err_msg)
         else:
-            msg = 'On Host - App Operational'
-            db.set_application_state(info, 100, msg, None)
+            app_state = db.get_application_state(info, 100, msg, None)
+            if app_state != 100:
+                 msg = 'On Host - App Operational'
+                 db.set_application_state(info, 100, msg, None)

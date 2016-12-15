@@ -67,7 +67,7 @@ class VmsFile(object):
         env = {'SSHPASS': self.db_args['fileserver_password']}
 
         # format the rsync command
-        rsync_str = '/usr/bin/rsync -caqz --rsh="/usr/bin/sshpass -e ssh -l {username}" {host}:{path}/{file} /opt/qs/input/{file}'
+        rsync_str = '/usr/bin/rsync --partial --append-verify --rsh="/usr/bin/sshpass -e ssh -l {username}" {host}:{path}/{file} /opt/qs/input/{file}'
         rsync_cmd = rsync_str.format(**options)
         while True:
             # pylint: disable=bare-except
