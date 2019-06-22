@@ -2,21 +2,29 @@
 """
 Module that handles the core QS/VMS processing actions.
 """
-
+import threading
 import traceback
 import sys
 import time
+import datetime
 import json
 import syslog
 import importlib
 import operator
 import multiprocessing
+import subprocess
 
 import vms_db
 import periodic_timer
 import vms_db_ground
 import ls_comm_flight_stream
 import linkstar
+import linkstarstx3
+import vms_gps
+import vms_gps_novatel
+import ctypes
+import ctypes.util
+from random import randint
 
 # Disable some pylint warnings that I don't care about
 # pylint: disable=line-too-long,fixme,invalid-name,too-many-public-methods,too-many-arguments
@@ -25,17 +33,44 @@ import linkstar
 # pylint: disable=missing-docstring
 
 
+# DEFINE GLOBAL VARIBLE to track when time is set.  One set, not longer needed to reset the time
+
+time_set = False
+packetDitherTimeUpper = 10
+
+# DEFINE GLOBAL VARIABLE to track the alarm count.  This is used as part of the countdown for 
+#    transmitting the alarm every 5 minutes.   Note delays are not used along with setting up
+#    a separate thread because we want to turn off the alarm as soon as possible when the alarm state goes to zero
+alarm_count = 14
+
+# DEFINE GLOBAL VARIABLE TRACKING ON/OFF status of the STX3. DEFAULT IS ON
+stx3_ON_OFF = 1
+
+print time_set
+
+#------ balloon_flight_count for testing ONLY BY SCIZONE ONLY!
+#balloon_flight_count = 0
+#print "*** Balloon Flight Count ***"
+#print balloon_flight_count
+
 def write_json_data(data, filename):
     f = open(filename, 'w')
     f.write(json.dumps(data))
     f.close()
 
 
+def isfloat(value):
+  try:
+    float(value)
+    return True
+  except ValueError:
+    return False
+
 def unknown_command_wrapper(db_args, cmd, thread_run_event):
     status = 5
 
     local_db = vms_db.vms_db(**db_args)
-
+    
     # If the command is "STRING.STRING", split the string and attempt
     # to import a module to handle the command.
     subcmd = cmd['command'].lower().split('.', 2)
@@ -76,9 +111,14 @@ def unknown_command_wrapper(db_args, cmd, thread_run_event):
     return status
 
 
+
+
 class vms(object):
     # pylint: disable=unused-argument,too-many-instance-attributes,too-many-statements
     def __init__(self, vms_address, vms_port, vms_cert, vms_username, vms_password, vms_dbname, flight_stream_flag, **kwargs):
+        
+        global packetDitherTimeUpper
+        
         # Save the arguments
         self.args = {
             'vms': {
@@ -89,40 +129,74 @@ class vms(object):
                 'cert': vms_cert,
                 'dbname': vms_dbname
             },
+            'vms_ground': {
+                'address': '159.118.1.204',
+                'port': vms_port,
+                'username': vms_username,
+                'password': 'quicksat!1',
+                'cert': vms_cert,
+                'dbname': vms_dbname
+            },
             'fsdata': {
                 'flight-stream': flight_stream_flag
             }
         }
-        self.linkstar = linkstar.linkstar(**self.args['vms'])
+        
+        print self.args
 
         # Connect to the QS/VMS DB
         self.db = vms_db.vms_db(**self.args['vms'])
 
-        gs_args = self.db.get_db_ground_args()
+        # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
+        ls_duplex_installed = self.db.ls_duplex_installed_state()
+        print "LinkStar duplex Installed Flag" + str(ls_duplex_installed)
 
-        self.args['vms_ground'] = {
-            'address': gs_args['server'],
-            'port': vms_port,
-            'username': gs_args['username'],
-            'password': gs_args['password'],
-            'cert': vms_cert,
-            'dbname': vms_dbname
-        }
-        # self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
-        self.db_ground = None
+        # Determine if LinkStar Simplex STX Radio is installed - first get the data if the radio is installed
+        ls_simplexstx3_installed = self.db.ls_simplexstx3_installed_state()
+        
+        if ls_simplexstx3_installed == 1:
+            radio_space_use = self.db.check_radio_space_use()
+        
+        # Check if bypassing the GPS. IF ALLOWED AND BYPASSING THE GPS do not get the time 
+        #    or set the time - there is no GPS to access the time from
+        gpsByPassAllowed = self.db.gps_bypass_allowed()
+        print "BY PASS VALUE: " + str(gpsByPassAllowed)
 
-        self.args['lsav'] = {
-            'address': vms_address,
-            'port': vms_port,
-            'username': vms_username,
-            'password': vms_password,
-            'cert': vms_cert,
-            'dbname': 'stepSATdb_FlightAV'
-        }
+        # Determine if GPS is installed
+        vms_gps_state = self.db.gps_installed_state()
+        print "gps_installed_state " + str(vms_gps_state)
 
+        if ls_duplex_installed == 1:
+            print "LinkStar Duplex INSTALLED"
+            self.linkstar = linkstar.linkstar(**self.args['vms'])
+        else: 
+            print "LinkStar Duplex NOT Installed"
+            
+        # IF the SIMPLEX, LinkStar-STX3 is installed, define class
+        if ls_simplexstx3_installed == 1:
+            print "LinkStar-STX3 INSTALLED"
+            self.linkstarSTX3 = linkstarstx3.linkstarSTX3()
+        else: 
+            print "LinkStar-STX3 NOT Installed"
+
+        # IF the duplex radio is installed, get the ground server arguments
+        if ls_duplex_installed == 1:
+            gs_args = self.db.get_db_ground_args()
+            print gs_args
+            self.args['vms_ground'] = {
+                'address': gs_args['server'],
+                'port': vms_port,
+                'username': gs_args['username'],
+                'password': 'quicksat1',
+                'cert': vms_cert,
+                'dbname': vms_dbname
+            }
+            #self.db_ground = vms_db_ground.vms_db_ground(**self.args['vms_ground'])
+            self.db_ground = None
+            
         # Define ls_comm_flight_stream
-        if flight_stream_flag == 'ENABLED':
-            self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
+        #if flight_stream_flag == 'ENABLED':
+        #    self.db_fS = ls_comm_flight_stream.ls_comm_flight_stream(**self.args['lsav'])
 
         # Some mechanisms to allow threads to be paused by a command handler
         self.thread_run_event = multiprocessing.Event()
@@ -137,12 +211,7 @@ class vms(object):
         syslog.openlog()
         syslog.syslog(syslog.LOG_NOTICE, 'Started')
 
-        # Determine if LinkStar Duplex Radio is installed - first get the data if the radio is installed
-        ls_duplex_installed = self.db.ls_duplex_installed_state()
-
-        # Determine if LinkStar Simplex STX Radio is installed - first get the data if the radio is installed
-        # ls_simplexstx3_installed = = self.db.ls_simplexstx3_installed_state()
-
+        print "---> Duplex setup if installed "
         # IF the duplex radio is installed, send the duplex information to the ground periodically
         if ls_duplex_installed == 1:
             print "DUPLEX INSTALLED -  SYNC STATE"
@@ -165,56 +234,137 @@ class vms(object):
             print "sync location"
             t = periodic_timer.PeriodicTimer(self.sync_location_table, 22)
             self.threads.append(t)
+        
+        print "----> Activate GPS loop if installed"
+        # IF GPS is installed start tracking GPS location data
+        if (vms_gps_state is not None) and ( vms_gps_state['gps_type'] != 'NONE'):
+            if (vms_gps_state['gps_type'] == 'ADAFRUIT'):
+                self.vms_gps = vms_gps.GPS()
+            elif (vms_gps_state['gps_type'] == 'NOVATEL'):
+                self.vms_gps = vms_gps_novatel.GPS()
 
+            t = periodic_timer.PeriodicTimer(self.update_gps_data, vms_gps_state['sample_rate'])
+            self.threads.append(t)
+
+        print "----> Command Monitor"
         # For now, use the command poll rate to run the "command log monitor" function
         t = periodic_timer.PeriodicTimer(self.process, self.db.retrieve_command_log_poll_rate())
         self.threads.append(t)
 
         # Use a pre-defined radio status poll time for now
-        t = periodic_timer.PeriodicTimer(self.radio_status, 35)
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            print "----> Duplex Radio Status loop"
+            t = periodic_timer.PeriodicTimer(self.radio_status, 35)
+            self.threads.append(t)
 
         # Flight_Data and Flight_Data_Object use data_download_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_flight_data, self.db.retrieve_data_download_push_rate())
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.sync_flight_data, self.db.retrieve_data_download_push_rate())
+            self.threads.append(t)
 
-        t = periodic_timer.PeriodicTimer(self.sync_flight_data_object, self.db.retrieve_data_download_push_rate())
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.sync_flight_data_object, self.db.retrieve_data_download_push_rate())
+            self.threads.append(t)
 
         # Flight_Data_Binary uses binary_data_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_flight_data_binary, self.db.retrieve_binary_data_push_rate())
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.sync_flight_data_binary, self.db.retrieve_binary_data_push_rate())
+            self.threads.append(t)
 
         # Command_Log_ground_to_sv uses command_poll_rate
-        t = periodic_timer.PeriodicTimer(self.sync_command_log_ground_to_sv, self.db.retrieve_command_log_poll_rate())
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.sync_command_log_ground_to_sv, self.db.retrieve_command_log_poll_rate())
+            self.threads.append(t)
 
         # Command_Log_sv_to_ground uses command_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_command_log_sv_to_ground, self.db.retrieve_command_log_push_rate())
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.sync_command_log_sv_to_ground, self.db.retrieve_command_log_push_rate())
+            self.threads.append(t)
 
         # System_Messages uses command_syslog_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.sync_system_messages, self.db.retrieve_command_syslog_push_rate())
+            self.threads.append(t)
 
         # recording_sessions uses command_syslog_push_rate
-        t = periodic_timer.PeriodicTimer(self.sync_vms_recording_sessions, 37)
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.sync_vms_recording_sessions, 37)
+            self.threads.append(t)
 
         # Systems_Applications uses retrieve_command_log_poll_rate
         #    Update the ground station Systems_Application table - this tells the ground station the state of the applications on the SV.
         #
 
-        t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
-        self.threads.append(t)
+        if ls_duplex_installed == 1:
+            t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
+            self.threads.append(t)
 
-        # t = periodic_timer.PeriodicTimer(self.update_system_applications_state_to_gnd, 38)
-        # self.threads.append(t)
-
+        print "---> Set up STX3 if installed"
         # IF the SIMPLEX, LinkStar-STX3 is installed, beacon create a data packet group and transmit to the ground
-        # if ls_simplexstx3_installed == 1:
-        #   t=periodic_timer.PeriodicTimer(self.transmit_packet_group, self.db.retrieve_packet_group_xmit_rate())
-        #   self.threads.append(t)
+        if ls_simplexstx3_installed == 1:
+            # Get GSN number of the STX3 module and write it to the stepSATdb_Flight database
+            
+            #radioGSN ='0-1234567'
+            radioGSN = self.linkstarSTX3.stx3_command('AT+GSN?')
+            radioGSN_val = radioGSN.split(": ",1)[1]
+            self.db.update_gsn(radioGSN_val)
+            
+            # Get the packet_group_xmit_rate...this sets the frequency the packet transmission is done.
+            #    We will also use this to set the random, "dithering", time of the 
+            #    the packet sent to the ground.  This dithering factor is based on the timing between messages
+            #    to a limit of up to 5 minute dither
+            
+            packetGroupXmitRate = self.db.retrieve_packet_group_xmit_rate()
+            number_repeats_val = self.db.retrieve_linkstar_simplex_info('maximum_repeats')
+            repeat_delay_val = self.db.retrieve_linkstar_simplex_info('repeat_delay')
+            print "The baseline transmit rate is ", str(packetGroupXmitRate),", and the Number of Repeats is ", str(number_repeats_val)," and the repeat time is ", str(repeat_delay_val)
+
+            packetGroupXmitRate = packetGroupXmitRate - (number_repeats_val * repeat_delay_val)
+            print "---> The net packet delay time is ", str(packetGroupXmitRate)
+            
+            t=periodic_timer.PeriodicTimer(self.transmit_packet_group, packetGroupXmitRate)
+            if packetGroupXmitRate < 3600:
+                packetDitherTimeUpper = int( 0.0666667 * float(packetGroupXmitRate))
+                print "The packetDitherTimeUpper is -----> ", packetDitherTimeUpper
+            else:
+                packetDitherTimeUpper = 600
+            self.threads.append(t)
+
+        # Set Channel based on space use
+        if ls_simplexstx3_installed == 1:
+            if radio_space_use == 1:
+                print "Channel C"
+                stx3Channel = 2
+                # channel "2" is Channel C to be used in SPACE AT ALL TIMES!!!
+            else:
+                print "Channel A"
+                stx3Channel = 0
+                
+            self.linkstarSTX3.stx3_set_channel( stx3Channel )
+            self.linkstarSTX3.stx3_CBTMIN(280)                     # required by Globalstar
+            self.linkstarSTX3.stx3_CBTMAX(540)                     # required by Globalstar
+            self.linkstarSTX3.stx3_number_burst_transmissions(3)   # required by Globalstar
+        
+        # Set loop to monitor alarm and timing/transmit changes
+        if ls_simplexstx3_installed == 1:
+            t=periodic_timer.PeriodicTimer(self.stx3_state_change_monitor, 20)      # Check the timing change and the alarm state every 20 seconds
+            self.threads.append(t)
+            
+        # IF the SIMPLEX, LinkStar-STX3 is installed, beacon create a data packet group and transmit to the ground
+        #if ls_simplexstx3_installed == 1:
+        #        t=periodic_timer.PeriodicTimer(self.transmit_alarm_packet, 120)
+        #        self.threads.append(t)
+
+        # IF GPS is installed set the system time.  Because the time may not be correct at the start, and the system
+        #    can experience a restart we will check set and the time every two minutes
+        
+        
+        if (vms_gps_state is not None) and ( vms_gps_state['gps_type'] != 'NONE'):            
+            # set system time
+            print "tttt ---> Set GPS time"
+            t=periodic_timer.PeriodicTimer(self.set_ls_system_time, 120)
+            self.threads.append(t)
+
 
     def __del__(self):
         for t in self.threads:
@@ -237,10 +387,29 @@ class vms(object):
         self.thread_run_event.set()
         for t in self.threads:
             t.start()
-
+        runSys = True
         try:
-            while True:
-                time.sleep(60.0)
+            while runSys:
+                time.sleep(30.0)
+                # Check if timing changed.  If changed, restart vms
+                timingChanged = self.db.check_timing_reset()
+                if timingChanged == 1:
+                    print "@@@@@@@@ TIMING CHANGED @@@@@@@@"
+                    # set timing_reset flag to zero
+                    self.db.zero_timing_reset_flag()
+                    # restart command processing
+                    for t in self.threads:
+                        t.stop()
+                    self.threads = []
+
+                    for proc in self.cmd_processes:
+                        proc.kill()
+                    self.cmd_processes = []
+                    
+                    runSys = False
+                else: 
+                    runSys = True
+
         except KeyboardInterrupt:
             for t in self.threads:
                 t.stop()
@@ -251,6 +420,7 @@ class vms(object):
             self.cmd_processes = []
 
             raise
+            
 
     def process(self):
         # pylint: disable=too-many-branches
@@ -286,6 +456,12 @@ class vms(object):
                 self.sync_system_messages(cmd)
             elif cmd['command'] == 'SYNC_RECORDING_SESSIONS':
                 self.sync_vms_recording_sessions(cmd)
+            elif cmd['command'] == 'STOP_STX3':
+                print "in OFF COMMAND"
+                self.set_STX3_to_OFF(cmd)
+            elif cmd['command'] == 'START_STX3':
+                print "in ON COMMAND"
+                self.set_STX3_to_ON(cmd)
             else:
                 self.handle_unknown_command(cmd['command'], cmd)
 
@@ -399,6 +575,30 @@ class vms(object):
         except:
             self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
 
+    def set_STX3_to_OFF(self, cmd):
+        # pylint: disable=bare-except
+        global stx3_ON_OFF
+        try:
+            print "@@@@@ TURN OFF STX3"
+            stx3_ON_OFF = 0
+            self.db.complete_commands(cmd, True, traceback.format_exception(*sys.exc_info()))
+        except KeyboardInterrupt as e:
+            raise e
+        except:
+            self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+
+    def set_STX3_to_ON(self, cmd):
+        # pylint: disable=bare-except
+        global stx3_ON_OFF
+        try:
+            print "@@@@@ TURN ON STX3"
+            stx3_ON_OFF = 1
+            self.db.complete_commands(cmd, True, traceback.format_exception(*sys.exc_info()))
+        except KeyboardInterrupt as e:
+            raise e
+        except:
+            self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+
     def update_linkstar_location_tables(self, cmd=None):
         # Check if this thread should be running or paused (only if it wasn't
         # called as a command handler)
@@ -498,8 +698,15 @@ class vms(object):
     """
 
     def remove_db_ground_connection(self):
-        del self.db_ground
+        try:
+            if self.db_ground:
+                del self.db_ground
+        except KeyboardInterrupt as e:
+            raise e
+        except:
+            syslog.syslog(syslog.LOG_ERR, 'Error opening ground connection: {}'.format(traceback.format_exception(*sys.exc_info())))
         self.db_ground = None
+        return
 
     def sync_flight_data_object(self, cmd=None):
         # Check if this thread should be running or paused (only if it wasn't
@@ -832,3 +1039,953 @@ class vms(object):
         except:
             if cmd:
                 self.db.complete_commands(cmd, False, traceback.format_exception(*sys.exc_info()))
+                
+    def transmit_packet_group(self):
+        # This function builds the packet to be sent and
+        #    transmits the packet to the ground through the LinkStar-STX3 radio
+        
+        global packetDitherTimeUpper
+        global stx3_ON_OFF
+        
+        # Check if alarm is DETECTED.  IF ALARM is 1, DO NOT SEND PACKET GROUP!
+        alarmStatus = self.db.check_alarm_status()
+
+        # Verify activated to transmit
+        
+        sync_to_ground = self.db.ground_sync_allowed()
+        print "-----> sync_to_ground" + str(sync_to_ground)
+        
+        if (sync_to_ground == 1) and (stx3_ON_OFF == 1) and (alarmStatus == 0):
+        
+            # Verify allowed to BY PASS THE GPS.  This allows the LinkStar-STX3 to
+            #    operate without a GPS or without a GPS fix.
+            #    THIS CAN ONLY BE USED FOR SPACE MISSIONS AND LAB TESTING by AUTHORIZED ORGANIATIONS
+
+            gpsByPassAllowed = self.db.gps_bypass_allowed()
+
+            print "-----> space use, BYPASS GPS --> " + str(gpsByPassAllowed)
+        
+            # get number of message repeats and the time between repeats
+        
+            number_repeats_val = self.db.retrieve_linkstar_simplex_info('maximum_repeats')
+            repeat_delay_val = self.db.retrieve_linkstar_simplex_info('repeat_delay')
+            print ">>>-----> number_repeats_val --> " + str(number_repeats_val)
+            print ">>>-----> repeat_delay_val --> " + str(repeat_delay_val)
+        
+
+            packetType = self.db.get_packet_type(1)
+        
+        
+        
+            print "---->  SYNC LINKSTARSTX3 TO GROUND <--------"
+        
+            # Verify GPS has a fix.  If the GPS does have a fix allow transmission of the packet
+            gpsInformation = self.db.gps_installed_state()
+            
+            if gpsInformation is not None:
+                gpsFixQuality = gpsInformation['fix_quality']
+            else:
+                gpsFixQuality = 0
+
+            # Set channel based on location
+            #
+            #  If SPACE USE, the channel is preset at vms startup AND CANNOT BE CHANGED!
+            
+            print "GPS Information FIX QUALITY: " + str(gpsFixQuality)
+            
+            if (gpsFixQuality!=0) or (gpsByPassAllowed == 1):
+            
+                print "----> *** PRE-DITHER TRANSMIT *** <----> ", packetDitherTimeUpper
+                
+                # delay based on random dither factor range
+                
+                time.sleep(randint(5,packetDitherTimeUpper))
+                
+                print "----> *** TRANSMITTING PACKET *** <----"
+                 
+                # Build packet
+                
+                # Retrieve current packet_id and get maximum number of packets in group
+                packet_id = 1
+
+                # Increment if maximum number of packets in group is greater than 2
+                
+                
+                # Check GPS location IF NOT IN SPACE USE MODE.  This will determine whether to use Channel A or C.
+                radio_space_use = self.db.check_radio_space_use()
+                if radio_space_use != 1:                                 # SPACE USE NOT SET.  If SPACE USE, Channel is already set. No need to check Earth region
+                    gpsLocation = self.db.get_location()
+                    print gpsLocation['latitude']
+                    print gpsLocation['longitude']
+                    print gpsLocation['altitude']
+                    if gpsLocation['latitude'] != 'error':
+                        stx3Channel = self.linkstarSTX3.check_bounds(float(gpsLocation['latitude']), float(gpsLocation['longitude']), float(gpsLocation['altitude']))
+                        print "----> *** Channel set for broadcast *** -> " + str(stx3Channel)
+                        self.linkstarSTX3.stx3_set_channel( stx3Channel )
+                
+                # Retrieve packet
+                message_packet_ascii = self.db.get_stx3_ascii_message(packet_id)
+                print "The retrieved ASCII message"
+                print message_packet_ascii
+        
+                # The LinkStar-STX3 only sends HEX messages.  This function allows you to send
+                #    ASCII messages which then automatically converts the message to HEX before
+                #    Sending the message
+                
+                message_is_ascii = False
+                if ( packetType == 'GS_GPS'): 
+                    message_is_ascii = True
+                    self.linkstarSTX3.stx3_gps_message( message_packet_ascii )
+                elif ( ( packetType == 'GPS_EXTENDED') or ( packetType == 'GPS_FULL') or ( packetType == 'TEST') or ( packetType == 'X')) :
+                    message_is_ascii = True
+                    print "In ASCII MESSAGE SEND"
+                    self.linkstarSTX3.stx3_message_ascii( message_packet_ascii )
+                else:
+                    message_is_ascii = False
+                    # parse message
+                    parsed_message = message_packet_ascii.split(',')
+                    
+                    # Pack GPS code
+                                        
+                    # convert latitude to integer code
+                    gps_lat_f = float(parsed_message[1])
+                    
+                    if (gps_lat_f < 0):
+                        gps_lat_f = 180+gps_lat_f
+                    
+                    gps_lat_code_f = (gps_lat_f/90)*(2**23)
+                    
+                    if ( isfloat(gps_lat_code_f) ):
+                        gps_lat_code_i = int(round(gps_lat_code_f))
+                    else:
+                        gps_lat_code_i = 0
+                    
+                    # convert latitude to HEX
+                    gps_lat_hex = hex(gps_lat_code_i)
+                    print "Lat Codes"
+                    print gps_lat_hex
+                    gps_lat_hex = gps_lat_hex.rstrip("L").lstrip("0x")
+                    print gps_lat_hex
+                    gps_lat_hex = gps_lat_hex.upper()
+                    print gps_lat_hex
+                   
+                    # convert longitude to integer code
+                    gps_lon_f = float(parsed_message[2])
+                    
+                    if (gps_lon_f < 0):
+                        gps_lon_f = 360+gps_lon_f
+                    
+                    gps_lon_code_f = (gps_lon_f/180)*(2**23)
+                    
+                    if ( isfloat(gps_lon_code_f) ):
+                        gps_lon_code_i = int(round(gps_lon_code_f))
+                    else:
+                        gps_lon_code_i = 0
+                    
+                    # convert latitude to HEX
+                    gps_lon_hex = hex(gps_lon_code_i)
+                    gps_lon_hex = gps_lon_hex.rstrip("L").lstrip("0x")
+                    gps_lon_hex = gps_lon_hex.upper()
+                    
+                    # Convert packet type to HEX
+                    packet_type_hex = parsed_message[0].encode("hex")
+                    packet_type_hex = packet_type_hex.upper()
+                    print "packet type hex: " + packet_type_hex
+                    
+                    # Convert message to HEX
+                    
+                    if ( parsed_message[0] == 'B' ):                # Transmit first two bytes
+                        data_message_hex = parsed_message[3].encode("hex")
+                        data_message_hex = data_message_hex.upper()
+                        
+                    if ( parsed_message[0] == 'G' ):                
+                        data_message_hex = parsed_message[3].encode("hex")
+                        data_message_hex = data_message_hex.upper()
+                        
+                    elif ( parsed_message[0] == 'A' ):              # Transmit altitude data
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    elif ( parsed_message[0] == 'P' ):             # Transmit altitude in space data
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    elif ( parsed_message[0] == 'S' ):             # Transmit speed
+                        print "messages"
+                        print parsed_message[3]
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        print data_value_i
+                        data_message_hex = hex(data_value_i)
+                        print data_message_hex
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        print data_message_hex
+                        data_message_hex = data_message_hex.upper()
+                        print data_message_hex
+
+                    elif ( parsed_message[0] == 'I' ):            # Transmit integer value
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+
+                    elif ( parsed_message[0] == '1' ):
+                        print "messages"
+                        print parsed_message[3]
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = data_value_f*10
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        print data_value_i
+                        data_message_hex = hex(data_value_i)
+                        print data_message_hex
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        print data_message_hex
+                        data_message_hex = data_message_hex.upper()
+                        print data_message_hex
+
+                    elif ( parsed_message[0] == '2' ):
+                        print "messages"
+                        print parsed_message[3]
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = data_value_f*100
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        print data_value_i
+                        data_message_hex = hex(data_value_i)
+                        print data_message_hex
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        print data_message_hex
+                        data_message_hex = data_message_hex.upper()
+                        print data_message_hex
+
+                    elif ( parsed_message[0] == '3' ):
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = +1000*data_value_f
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+
+                    elif ( parsed_message[0] == '4' ):
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = +10000*data_value_f
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+
+                    elif ( parsed_message[0] == '5' ):
+                        # convert string to float
+                        if (parsed_message[3] is None) or (parsed_message[3] == ''):
+                            data_value_f = 0.0
+                        else:
+                            data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = +100000*data_value_f
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    else:   # Treat as type B
+                        data_message_hex = parsed_message[3].encode("hex")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    
+                    # Assemble Message
+                    message_packet_hex = packet_type_hex + gps_lat_hex + gps_lon_hex + data_message_hex
+                    print message_packet_hex
+                    
+                    # Send message as HEX
+                    self.linkstarSTX3.stx3_message_hex( message_packet_hex )
+                
+                # Archive the sent packet
+                self.db.archive_packet( message_packet_ascii, packet_id )     # save original message, not hex message
+                
+                # Check if repeating the message.  If so repeat...
+                if number_repeats_val > 0:                # case of one or two repeat messages
+                    time.sleep(repeat_delay_val)
+                    if (message_is_ascii):
+                        self.linkstarSTX3.stx3_message_ascii( message_packet_ascii )
+                    else:
+                        self.linkstarSTX3.stx3_message_hex( message_packet_hex )
+                        
+                    # Archive the sent packet
+                    self.db.archive_packet( message_packet_ascii, packet_id )      # save original message, not hex message
+                    print "----> *** TRANSMITTING PACKET #1 *** <----"
+                    
+                    if number_repeats_val > 1:            # case of two repeat messages
+                        time.sleep(repeat_delay_val)
+                        if (message_is_ascii):
+                            self.linkstarSTX3.stx3_message_ascii( message_packet_ascii )
+                        else:
+                            self.linkstarSTX3.stx3_message_hex( message_packet_hex )
+                        
+                        # Archive the sent packet
+                        self.db.archive_packet( message_packet_ascii, packet_id )        # save original message, not hex message
+                        print "----> *** TRANSMITTING PACKET #2 *** <----"
+
+    def transmit_alarm_packet(self):
+        global stx3_ON_OFF
+
+        # This function builds the packet to be sent and
+        #    transmits the packet to the ground through the LinkStar-STX3 radio
+        
+        # Verify activated to transmit
+        
+        sync_to_ground = self.db.ground_sync_allowed()
+        
+        print "-----> ALARM sync_to_ground " + str(sync_to_ground)
+        
+        # Verify allowed to BY PASS THE GPS.  This allows the LinkStar-STX3 to
+        #    operate without a GPS or without a GPS fix.
+        #    THIS CAN ONLY BE USED FOR SPACE MISSIONS AND LAB TESTING by AUTHORIZED ORGANIATIONS
+
+        gpsByPassAllowed = self.db.gps_bypass_allowed()
+
+        print "-----> space use, BYPASS GPS --> " + str(gpsByPassAllowed)
+
+        packetType = self.db.get_packet_type(1)
+                
+        if (sync_to_ground == 1) and (stx3_ON_OFF == 1):
+        
+            print "---->  SYNC LINKSTARSTX3 ALARM TO GROUND <--------"
+        
+            # Verify GPS has a fix.  If the GPS does have a fix allow transmission of the packet
+            gpsInformation = self.db.gps_installed_state()
+            
+            if gpsInformation is not None:
+                gpsFixQuality = gpsInformation['fix_quality']
+            else:
+                gpsFixQuality = 0
+
+            # Set channel based on location
+            #
+            #  If SPACE USE, the channel is preset at vms startup AND CANNOT BE CHANGED!
+            
+            print "GPS Information FIX QUALITY: " + str(gpsFixQuality)
+            
+            if (gpsFixQuality!=0) or (gpsByPassAllowed == 1):
+            
+                print "----> *** PRE-DITHER TRANSMIT *** <----> 30"
+                
+                # delay based on random dither factor range
+                
+                time.sleep(randint(5,30))
+                
+                print "----> *** TRANSMITTING ALARM PACKET *** <----"
+                 
+                # Build packet
+                
+                # Retrieve current packet_id and get maximum number of packets in group
+                packet_id = 1
+
+                
+                # Check GPS location IF NOT IN SPACE USE MODE.  This will determine whether to use Channel A or C.
+                radio_space_use = self.db.check_radio_space_use()
+                if radio_space_use != 1:                                 # SPACE USE NOT SET.  If SPACE USE, Channel is already set. No need to check Earth region
+                    gpsLocation = self.db.get_location()
+                    print gpsLocation['latitude']
+                    print gpsLocation['longitude']
+                    print gpsLocation['altitude']
+                    if gpsLocation['latitude'] != 'error':
+                        stx3Channel = self.linkstarSTX3.check_bounds(float(gpsLocation['latitude']), float(gpsLocation['longitude']), float(gpsLocation['altitude']))
+                        print "----> *** Channel set for broadcast *** -> " + str(stx3Channel)
+                        self.linkstarSTX3.stx3_set_channel( stx3Channel )
+                
+                # Retrieve packet
+                message_packet_ascii = self.db.get_stx3_ascii_message(packet_id)
+        
+                # The LinkStar-STX3 only sends HEX messages.  This function allows you to send
+                #    ASCII messages which then automatically converts the message to HEX before
+                #    Sending the message
+                
+                message_is_ascii = False
+                if ( packetType == 'GS_GPS'): 
+                    message_is_ascii = True
+                    self.linkstarSTX3.stx3_gps_message( message_packet_ascii )
+                elif ( ( packetType == 'GPS_EXTENDED') or ( packetType == 'GPS_FULL') or ( packetType == 'TEST') or ( packetType == 'X')) :
+                    message_is_ascii = True
+                    print "In ASCII MESSAGE SEND"
+                    self.linkstarSTX3.stx3_message_ascii( message_packet_ascii )
+                else:
+                    message_is_ascii = False
+                    # parse message
+                    parsed_message = message_packet_ascii.split(',')
+                    
+                    # Pack GPS code
+                                        
+                    # convert latitude to integer code
+                    gps_lat_f = float(parsed_message[1])
+                    
+                    if (gps_lat_f < 0):
+                        gps_lat_f = 180+gps_lat_f
+                    
+                    gps_lat_code_f = (gps_lat_f/90)*(2**23)
+                    
+                    if ( isfloat(gps_lat_code_f) ):
+                        gps_lat_code_i = int(round(gps_lat_code_f))
+                    else:
+                        gps_lat_code_i = 0
+                    
+                    # convert latitude to HEX
+                    gps_lat_hex = hex(gps_lat_code_i)
+                    print "Lat Codes"
+                    print gps_lat_hex
+                    gps_lat_hex = gps_lat_hex.rstrip("L").lstrip("0x")
+                    print gps_lat_hex
+                    gps_lat_hex = gps_lat_hex.upper()
+                    print gps_lat_hex
+                   
+                    # convert longitude to integer code
+                    gps_lon_f = float(parsed_message[2])
+                    
+                    if (gps_lon_f < 0):
+                        gps_lon_f = 360+gps_lon_f
+                    
+                    gps_lon_code_f = (gps_lon_f/180)*(2**23)
+                    
+                    if ( isfloat(gps_lon_code_f) ):
+                        gps_lon_code_i = int(round(gps_lon_code_f))
+                    else:
+                        gps_lon_code_i = 0
+                    
+                    # convert latitude to HEX
+                    gps_lon_hex = hex(gps_lon_code_i)
+                    gps_lon_hex = gps_lon_hex.rstrip("L").lstrip("0x")
+                    gps_lon_hex = gps_lon_hex.upper()
+                    
+                    # Convert packet type to HEX
+                    packet_type_hex = parsed_message[0].encode("hex")
+                    packet_type_hex = packet_type_hex.upper()
+                    print "packet type hex: " + packet_type_hex
+                    
+                    # Convert message to HEX
+                    
+                    if ( parsed_message[0] == 'B' ):                # Transmit first two bytes
+                        data_message_hex = parsed_message[3].encode("hex")
+                        data_message_hex = data_message_hex.upper()
+                        
+                    if ( parsed_message[0] == 'G' ):                
+                        data_message_hex = parsed_message[3].encode("hex")
+                        data_message_hex = data_message_hex.upper()
+                        
+                    elif ( parsed_message[0] == 'A' ):              # Transmit altitude data
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    elif ( parsed_message[0] == 'P' ):             # Transmit altitude in space data
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    elif ( parsed_message[0] == 'S' ):             # Transmit speed
+                        print "messages"
+                        print parsed_message[3]
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        print data_value_i
+                        data_message_hex = hex(data_value_i)
+                        print data_message_hex
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        print data_message_hex
+                        data_message_hex = data_message_hex.upper()
+                        print data_message_hex
+
+                    elif ( parsed_message[0] == 'I' ):            # Transmit integer value
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+
+                    elif ( parsed_message[0] == '1' ):
+                        print "messages"
+                        print parsed_message[3]
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = data_value_f*10
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        print data_value_i
+                        data_message_hex = hex(data_value_i)
+                        print data_message_hex
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        print data_message_hex
+                        data_message_hex = data_message_hex.upper()
+                        print data_message_hex
+
+                    elif ( parsed_message[0] == '2' ):
+                        print "messages"
+                        print parsed_message[3]
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = data_value_f*100
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        print data_value_i
+                        data_message_hex = hex(data_value_i)
+                        print data_message_hex
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        print data_message_hex
+                        data_message_hex = data_message_hex.upper()
+                        print data_message_hex
+
+                    elif ( parsed_message[0] == '3' ):
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = +1000*data_value_f
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+
+                    elif ( parsed_message[0] == '4' ):
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = +10000*data_value_f
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+
+                    elif ( parsed_message[0] == '5' ):
+                        # convert string to float
+                        data_value_f = float(parsed_message[3])
+                        # convert float to integer
+                        if ( isfloat(data_value_f) ):
+                            # move right of decimal data to left 1 place
+                            data_value_f = +100000*data_value_f
+                            data_value_i = int(round(data_value_f))
+                        else:
+                            data_value_i = 0
+                        # convert integer to hex
+                        data_message_hex = hex(data_value_i)
+                        data_message_hex = data_message_hex.rstrip("L").lstrip("0x")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    else:   # Treat as type B
+                        data_message_hex = parsed_message[3].encode("hex")
+                        data_message_hex = data_message_hex.upper()
+                    
+                    
+                    # Assemble Message
+                    message_packet_hex = packet_type_hex + gps_lat_hex + gps_lon_hex + data_message_hex
+                    print message_packet_hex
+                    
+                    # Send message as HEX
+                    self.linkstarSTX3.stx3_message_hex( message_packet_hex )
+                
+                # Archive the sent packet
+                self.db.archive_packet( message_packet_ascii, packet_id )
+                
+      
+    def stx3_state_change_monitor(self):
+        global alarm_count
+        # Check alarm status
+        alarmStatus = self.db.check_alarm_status()
+        if alarmStatus == 1:
+            alarm_count += 1
+            print alarm_count
+            if alarm_count >= 15:
+                self.transmit_alarm_packet()
+                alarm_count = 0
+        else:
+            alarm_count = 14
+            print "@@@@@@ ALARM COUNT CHANGE; ALARM OFF "
+            print alarm_count
+            
+    def update_gps_data(self):
+        self.vms_gps.read()
+
+        # ***** CUSTOM FOR THE TEST FLIGHT
+        #  GET the GPS data
+        if self.vms_gps.latHem == 'N':
+            gpsLatHem = ''
+        else:
+            gpsLatHem = '-'
+        
+        if self.vms_gps.lonHem == 'W':
+            gpsLonHem = '-'
+        else:
+            gpsLonHem = ' '
+
+        print " GPS FIX TYPE "
+        print self.vms_gps.gpsFixType
+        gpsFixTypeVal = str(self.vms_gps.gpsFixType)
+        fixVal = str(self.vms_gps.fix)
+        print gpsFixTypeVal
+        
+        satellites_being_tracked = self.vms_gps.sats
+        satellites_in_view = self.vms_gps.NumberSatellitesInView
+        pdop = self.vms_gps.PDOP
+        vdop = self.vms_gps.VDOP
+        hdop = self.vms_gps.HDOP
+         
+        print "DOPS DONE ********" 
+        gpsData = str(self.vms_gps.timeUTC) + ',' + gpsLatHem + str(self.vms_gps.latDeg) + ',' + str(self.vms_gps.latMin) +',' + gpsLonHem + str(self.vms_gps.lonDeg) + ',' + str(self.vms_gps.lonMin) + ',' + str(self.vms_gps.knots) +','+ str(self.vms_gps.altitude) + ',' + str(self.vms_gps.magTrue)+ ',' + gpsFixTypeVal + ',' + fixVal
+        print gpsData
+        #  WRITE THE GPS DATA as a packet to the database IF ENABLED
+        #  
+        #  check packet type
+        packetType = self.db.get_packet_type(1)
+        parameter_id = self.db.get_packet_parameter_id(1)
+        print packetType
+
+        # Write the data to the Location_Data table - this is used for the on board map function
+        if isfloat(self.vms_gps.latDeg) and (self.vms_gps.latMin):
+            gpsLattitude_num = float(self.vms_gps.latDeg) + float(self.vms_gps.latMin)/60
+        else:
+            gpsLattitude_num = 0
+        
+        gpsLattitude = gpsLatHem + str(gpsLattitude_num)
+
+
+        if isfloat(self.vms_gps.lonDeg) and (self.vms_gps.lonMin):
+            gpsLongitude_num = float(self.vms_gps.lonDeg) + float(self.vms_gps.lonMin)/60
+        else:
+            gpsLongitude_num = 0
+        
+        gpsLongitude = gpsLonHem + str(gpsLongitude_num)
+
+        
+        if ( packetType == 'GPS_SIMPLE'):
+            gpsData = 'G'+',' + gpsLattitude +',' + gpsLongitude + ','+''
+            print gpsData
+            self.db.write_stx3_ascii_message(gpsData,1)
+ 
+        elif ( packetType == 'GPS_EXTENDED'):
+            gpsData = 'E'+','+str(self.vms_gps.timeUTC) + ',' + gpsLatHem + str(self.vms_gps.latDeg) + ',' + str(self.vms_gps.latMin) +',' + gpsLonHem + str(self.vms_gps.lonDeg) + ',' + str(self.vms_gps.lonMin) + ',' + str(self.vms_gps.knots) +','+ str(self.vms_gps.altitude)
+            print gpsData
+            self.db.write_stx3_ascii_message(gpsData,1)
+
+        elif ( packetType == 'GPS_FULL'):
+            gpsData = 'F'+',' + str(self.vms_gps.timeUTC) + ',' + gpsLatHem + str(self.vms_gps.latDeg) + ',' + str(self.vms_gps.latMin) +',' + gpsLonHem + str(self.vms_gps.lonDeg) + ',' + str(self.vms_gps.lonMin) + ',' + str(self.vms_gps.knots) +','+ str(self.vms_gps.altitude) + ',' + str(self.vms_gps.magTrue)+ ',' + gpsFixTypeVal + ',' + fixVal
+            print gpsData
+            self.db.write_stx3_ascii_message(gpsData,1)
+
+        elif ( packetType == 'TEST'):
+            gpsData = '*'+str(self.vms_gps.timeUTC)
+            print gpsData
+            self.db.write_stx3_ascii_message(gpsData,1)
+
+        elif ( packetType == 'GS_GPS'):
+            gpsData = str(self.vms_gps.latDeg) + str(int(round(float(self.vms_gps.latMin))))+'.0000' + ','+self.vms_gps.latHem+ ',' + str(self.vms_gps.lonDeg) + str(int(round(float(self.vms_gps.lonMin)))) + '.0000' + ','+self.vms_gps.lonHem + ','+ '0'
+            print gpsData
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == 'B'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data','parameter_value',parameter_id)
+            print stx3Data
+            print "Two Bytes"
+            print stx3Data[:2]
+            gpsData = 'B'+ ',' + gpsLattitude +',' + gpsLongitude +  ',' + stx3Data[:2]
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == 'A'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            gpsData = 'A'+ ',' + gpsLattitude +',' + gpsLongitude +  ',' + str(self.vms_gps.altitude)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == 'P'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            spaceAltitude = float(self.vms_gps.altitude)/1000.0
+            gpsData = 'P'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(spaceAltitude)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == 'S'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            gpsData = 'S'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(self.vms_gps.knots)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == 'I'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data','parameter_value',parameter_id)
+            print "* Integer Data --- "
+            print stx3Data
+            stx3Data_int = int(float(stx3Data))
+            gpsData = 'I'+ ',' + gpsLattitude +',' + gpsLongitude +  ',' + str(stx3Data_int)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == '1'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data','parameter_value',parameter_id)
+            print "* Float 1 Data --- "
+            print stx3Data
+            gpsData = '1'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(stx3Data)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == '2'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data','parameter_value',parameter_id)
+            print "* Float 2 Data --- "
+            print stx3Data
+            gpsData = '2'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(stx3Data)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == '3'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data','parameter_value',parameter_id)
+            print "* Float 3 Data --- "
+            print stx3Data
+            gpsData = '3'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(stx3Data)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == '4'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data','parameter_value',parameter_id)
+            print "* Float 4 Data --- "
+            print stx3Data
+            gpsData = '4'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(stx3Data)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == '5'):
+            #  Get the data from flight data.   Only first two bytes will be used.
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data','parameter_value',parameter_id)
+            print "* Float 5 Data --- "
+            print stx3Data
+            gpsData = '5'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(stx3Data)
+            self.db.write_stx3_ascii_message(gpsData,1)
+        elif ( packetType == 'X'):
+            #  Get the data from flight data object. 
+            stx3Data = self.db.retrieve_flight_data_last('Flight_Data_Object','parameter_value_object',parameter_id)
+            print "* Parameter Object Data"
+            print stx3Data
+            gpsData = 'X'+ ',' + gpsLattitude +',' + gpsLongitude + ',' + str(stx3Data)
+            self.db.write_stx3_ascii_message(gpsData,1)
+
+
+        # Report the fix information to the GPS_Information table
+        self.db.gps_write_GPS_fix_data(fixVal, gpsFixTypeVal, satellites_being_tracked, satellites_in_view, pdop, vdop, hdop)
+        self.db.gps_satellite_data(satellites_in_view, satellites_being_tracked, self.vms_gps.SatellitesInTracked, self.vms_gps.SatellitesInView)
+                
+        # Write to the Location_Data table
+        if self.vms_gps.fix!=0:
+            if self.vms_gps.dateUTC == 0:
+                self.db.gps_write_location_table(gpsLattitude, gpsLongitude, str(self.vms_gps.knots), 'error', str(self.vms_gps.altitude), 'GPS1',str(self.vms_gps.magTrue))
+            else:
+                self.db.gps_write_location_table(gpsLattitude, gpsLongitude, str(self.vms_gps.knots), str(self.vms_gps.dateUTC) + ' ' + str(self.vms_gps.timeUTC), str(self.vms_gps.altitude), 'GPS1',str(self.vms_gps.magTrue))
+        else:
+            self.db.gps_write_location_table('error', 'error', 'error', 'error', 'error', 'GPS1','error')
+
+        if self.vms_gps.fix!=0:
+        
+            print 'Universal Time: ',self.vms_gps.timeUTC
+            print 'Date: ',self.vms_gps.dateUTC
+            if self.vms_gps.fix=='1':
+                print 'GPS Fix (SPS)'
+            elif self.vms_gps.fix=='2':
+                print 'DGPS fix'
+            elif self.vms_gps.fix=='3':
+                print 'PPS fix'
+            elif self.vms_gps.fix=='4':
+                print 'Real Time Kinematic'
+            elif self.vms_gps.fix=='5':
+                print 'Float RTK'
+            elif self.vms_gps.fix=='6':
+                print 'estimated (dead reckoning)'
+            elif self.vms_gps.fix=='7':
+                print 'Manual input mode'
+            elif self.vms_gps.fix=='8':
+                print 'Simulation mode'
+            else:
+                print 'No Signal'
+
+            if self.vms_gps.gpsFixType=='1':
+                print 'No Fix'
+            elif self.vms_gps.gpsFixType=='2':
+                print '2D Fix'
+            elif self.vms_gps.gpsFixType=='3':
+                print '3D Fix'
+            else:
+                print 'none'
+            
+            print 'You are Tracking: ',self.vms_gps.sats,' satellites'
+            print 'My Latitude: ',self.vms_gps.latDeg, 'Degrees ', self.vms_gps.latMin,' minutes ', self.vms_gps.latHem
+            print 'My Longitude: ',self.vms_gps.lonDeg, 'Degrees ', self.vms_gps.lonMin,' minutes ', self.vms_gps.lonHem
+            print 'My Speed: ', self.vms_gps.knots
+            if isfloat(self.vms_gps.altitude):
+                altitude_ft = float(self.vms_gps.altitude)*3.2808
+            else:
+                altitude_ft = 0
+            print 'My Altitude: ',self.vms_gps.altitude,' m, and ',altitude_ft,' ft'
+            print 'My Heading: ',self.vms_gps.magTrue,' deg '
+            print 'Number of GSV Sentences: ',self.vms_gps.numDataSentences,'  '
+            print 'Number of Satellites in View: ',self.vms_gps.NumberSatellitesInView,'  '
+            print 'PDOP: ',self.vms_gps.PDOP,'  '
+            print 'HDOP: ',self.vms_gps.HDOP,'  '
+            print 'VDOP: ',self.vms_gps.VDOP,'  '
+            print 'Satellites Tracked: ',self.vms_gps.SatellitesInTracked,'  '
+            print 'Satellites In View: ',self.vms_gps.SatellitesInView,'  '
+
+    def linux_set_time(self, time_tuple):
+
+    
+        print time_tuple
+        
+        if (time_tuple[0] > 2040):     # bug in adafruit gps when no GPS at all it forces a year of 2080 which causes crash
+            correct_time = list(time_tuple)
+            correct_time[0] = 2000
+            time_tuple = tuple(correct_time)
+            print time_tuple
+
+        #
+        # define CLOCK_REALTIME                     0
+        CLOCK_REALTIME = 0
+
+        print "in linux set time"
+        class timespec(ctypes.Structure):
+            _fields_ = [("tv_sec", ctypes.c_long),
+                        ("tv_nsec", ctypes.c_long)]
+
+        librt = ctypes.CDLL(ctypes.util.find_library("rt"))
+
+        ts = timespec()
+        ts.tv_sec = int( time.mktime( datetime.datetime( *time_tuple[:6]).timetuple() ) )
+        ts.tv_nsec = time_tuple[6] * 1000000 # Millisecond to nanosecond
+
+        librt.clock_settime(CLOCK_REALTIME, ctypes.byref(ts))
+        
+    def set_ls_system_time(self):
+        global time_set
+        print "------TIME SET FLAG------"
+        print time_set
+        # wait for GPS to warm up and write to the DB
+        time.sleep(90)
+        if not time_set: 
+            time_tuple = self.db.build_time_tuple()
+            if time_tuple != 'error':
+                self.linux_set_time(time_tuple)
+                time_set=True
+                print "***** time was set *****"
+                print "EVERYTHING GOOD"
+        

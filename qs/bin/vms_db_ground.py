@@ -35,7 +35,7 @@ class vms_db_ground(object):
         self.cursor = None
         self.config = {
             'user': username,
-            'password': password,
+            'password': 'quicksat!1',
             'host': address,
             'port': port,
             'database': dbname,
@@ -163,6 +163,7 @@ class vms_db_ground(object):
                 return sync_Success
             except mysql.connector.Error as err:
                 print "-----> error connecting to the ground, sync_selected_db_table <-----------"
+                print selected_table_name
                 syslog.syslog(syslog.LOG_ERR, 'Error reconnecting to ground: {}'.format(err))
                 return False
 

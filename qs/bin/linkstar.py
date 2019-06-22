@@ -320,7 +320,7 @@ class linkstar(object):
         with self.radio.lock:
             (status, msg) = self.radio.call(number)
             if status:
-                args = [ '/usr/sbin/pppd', '/dev/ttyO2', '19200', 'noauth', 'defaultroute', 'replacedefaultroute', 'persist', 'maxfail', '1', 'crtscts', 'local' ]
+                args = [ '/usr/sbin/pppd', '/dev/ttyUSB0', '19200', 'noauth', 'defaultroute', 'replacedefaultroute', 'persist', 'maxfail', '1', 'crtscts', 'local' ]
                 self.ppp = subprocess.Popen(args)
             else:
                 self._log_msg('Failed to call #{}: {}'.format(number, msg))

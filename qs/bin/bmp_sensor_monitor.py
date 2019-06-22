@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """
-Module used to start the QS/VMS command processing application.
+Module used to start the bmp sensor processing application.
 """
 
 import argparse
-import vms
+import vms_bmpsensor
 import syslog
 import sys
 import traceback
@@ -26,8 +26,8 @@ if __name__ == '__main__':
     parser.add_argument('--no-vms-username', action='store_true', help='specify that a username is not required for the QS/VMS database (overrides --vms-username)')
     parser.add_argument('--vms-password', default='Quicksat!1', help='password for the QS/VMS database')
     parser.add_argument('--no-vms-password', action='store_true', help='specify that a password is not required for the QS/VMS database (overrides --vms-password)')
-    parser.add_argument('--flight-stream-flag', default='DISABLED', help='When True it tells VMS to stream data from stepSATdb_FlightAV between the vehicle and ground station')
 
+    print "Set up"
     # Parse the command line arguments
     args = parser.parse_args()
 
@@ -35,7 +35,7 @@ if __name__ == '__main__':
         args.vms_password = None
     if args.no_vms_username:
         args.vms_username = None
-
+    print "args set"
     # Catch any exceptions, log the error and then restart the command
     # processing service.  We can't assume that the DB connection is still
     # functional, so just log the error to the syslog.
@@ -45,10 +45,12 @@ if __name__ == '__main__':
         try:
             # All of the required arguments should be present, so just pass
             # a dict() object to the vms class constructor
-            conn = vms.vms(**vars(args))
+            print "define conn"
+            conn = vms_bmpsensor.vms_bmpsensor(**vars(args))
+            print "run sensor"
             conn.run()
-            del conn 
-            run = True
+            print run
+            run = False
         except KeyboardInterrupt as e:
             msg = 'caught keyboard interrupt, exiting...'
             syslog.syslog(syslog.LOG_INFO, msg)

@@ -461,6 +461,9 @@ class vms_db(object):
     def retrieve_flight_data(self, session=None, timestamp=None):
         return self.retrieve_data('Flight_Data', 'time_stamp', session, timestamp)
 
+    def retrieve_flight_data_last(self, table, column, parameter_id=None, session=None):
+        return self.retrieve_data_last(table, column, parameter_id, session)
+
     def retrieve_data(self, table, column, session=None, timestamp=None):
         if session:
             stmt = '''
@@ -495,6 +498,67 @@ class vms_db(object):
                 print("MySQL Error: {}".format(err))
                 syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
 
+    def retrieve_data_last(self, table, column, parameter_id=None, session=None):
+        if session:
+            if parameter_id:
+                stmt = '''
+                    SELECT `{table}`.`{column}` FROM `stepSATdb_Flight`.`{table}`
+                        WHERE `{table}`.`Recording_Sessions_recording_session_id`=%(session)s AND parameter_id = `{parameter_id}`
+                        ORDER BY `{table}`.`event_key` DESC LIMIT 1
+                '''.format(table=table, column=column, parameter_id=parameter_id)
+            else:
+                stmt = '''
+                    SELECT `{table}`.`{column}` FROM `stepSATdb_Flight`.`{table}`
+                        WHERE `{table}`.`Recording_Sessions_recording_session_id`=%(session)s AND parameter_id = %(parameter_id)s
+                        ORDER BY `{table}`.`event_key` DESC LIMIT 1
+                '''.format(table=table, column=column)
+        else:
+            if parameter_id:
+                stmt = '''
+                    SELECT `{table}`.`{column}` FROM `stepSATdb_Flight`.`{table}`
+                        WHERE parameter_id = "{parameter_id}"
+                        ORDER BY `{table}`.`event_key`  DESC LIMIT 1
+                '''.format(table=table, column=column, parameter_id=parameter_id)
+            else:
+                stmt = '''
+                    SELECT `{table}`.`{column}` FROM `stepSATdb_Flight`.`{table}`
+                        ORDER BY `{table}`.`event_key`  DESC LIMIT 1
+                '''.format(table=table, column=column)
+        print 'Retrieving Data...'
+        print stmt
+
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        if row:
+            return row[column]
+        else:
+            return "*"
+
+    def get_active_parameter_id(self):
+        # find the active parameter_id 
+        stmt = '''
+                    SELECT `Parameter_ID_Table`.`parameter_id` FROM `Parameter_ID_Table` 
+                    WHERE `stx3_selected_parameter` = 1
+                '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        if row:
+            return row[column]
+        else:
+            return None
+        
     def retrieve_command_log_poll_rate(self):
         # Get the latest state poll rate values
         return self.retrieve_push_poll_rate('command_poll_rate')
@@ -514,6 +578,9 @@ class vms_db(object):
 
     def retrieve_binary_data_push_rate(self):
         return self.retrieve_push_poll_rate('binary_data_push_rate')
+
+    def retrieve_packet_group_xmit_rate(self):
+        return self.retrieve_push_poll_rate('packet_group_xmit_rate')
 
     def retrieve_push_poll_rate(self, column):
         # Get the latest state push/poll rate values
@@ -786,7 +853,7 @@ class vms_db(object):
         with self.lock:
             self.cursor.execute(stmt)
             all_servers = self.cursor.fetchone()
-
+        print stmt
         if all_servers['selected_server'] == 'TEST':
             selected_server = {
                 'server': all_servers['test_server'],
@@ -807,9 +874,9 @@ class vms_db(object):
             }
         elif all_servers['selected_server'] == 'ALTERNATE':
             selected_server = {
-                'server': all_servers['alternate_server'],
-                'username': all_servers['alternate_username'],
-                'password': all_servers['alternate_password'],
+                'server': all_servers['alternative_server'],
+                'username': all_servers['alternative_username'],
+                'password': all_servers['alternative_password'],
                 'fileserver_username': all_servers['fileserver_username'],
                 'fileserver_password': all_servers['fileserver_password'],
                 'fileserver_pathname': all_servers['fileserver_pathname'],
@@ -825,7 +892,7 @@ class vms_db(object):
             }
         else:
             return None
-        # print selected_server
+        print selected_server
         return selected_server
 
     def sync_selected_db_table(self, selected_table_name):
@@ -894,12 +961,12 @@ class vms_db(object):
 
             # ----Update the event_key pointer for next upload ----
             stmt_highest_pointer = '''SELECT MAX(`event_key`) AS 'pointer' FROM `stepSATdb_Flight`.`{}`'''.format(selected_table_name)
-            # print stmt_highest_pointer
             with self.lock:
                 self.cursor.execute(stmt_highest_pointer)
                 highest_pointer = self.cursor.fetchone()
 
             last_used_key = (event_key + num_records['{}_num_records_download'.format(string.lower(selected_table_name))])
+            print "--> {} and the last used key {} and higest pointer {}".format(stmt_highest_pointer, last_used_key, highest_pointer)
             if highest_pointer['pointer'] <= last_used_key:
                 new_event_key = highest_pointer['pointer']
             else:
@@ -1126,6 +1193,10 @@ class vms_db(object):
 #
     def add_sv_command_log(self, commands):
         # adds row(s) to sv command_log
+        print "....> Listing Commands"
+        print commands
+        if isinstance(commands, (bool)):
+            commands = []
         if commands:
             for row in commands:
                 stmt = '''
@@ -1245,4 +1316,522 @@ class vms_db(object):
             return row['time_of_command']
         else:
             return None
+            
+    def write_flight_data(self, parameter_id, parameter_data):
+        # Get current recording session
+        stmt = '''
+                SELECT `Recording_Sessions`.`recording_session_id`
+                    FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
+        '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row_recording_session = self.cursor.fetchone()
+                rec_id = row_recording_session['recording_session_id']
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        
+        # Write data
+        stmt = '''
+            INSERT INTO `Flight_Data`( `time_stamp`, `parameter_id`, `Recording_Sessions_recording_session_id`, `parameter_value`) VALUES (NOW(),'{}','{}','{}')
+        '''.format(parameter_id, rec_id, parameter_data)
+        print stmt
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
 
+    def get_stx3_ascii_message(self, packet_id):
+       # Get the message 
+        stmt = '''
+            SELECT `LinkStarSTX3_Messages`.`message` FROM `LinkStarSTX3_Messages` WHERE `LinkStarSTX3_Messages`.`packet_id` = '{}'
+        '''.format(packet_id)
+        print stmt
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        if row:
+            return row['message']
+        else:
+            return None
+
+    def write_stx3_ascii_message(self, message_packet_ascii, packet_id):
+        stmt = '''
+            UPDATE `LinkStarSTX3_Messages` SET `message`= '{}', `time_sent`= NOW() WHERE `LinkStarSTX3_Messages`.`packet_id` = '{}'
+        '''.format(message_packet_ascii, packet_id)
+        print stmt
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        return True
+
+    def archive_packet( self,message_packet_ascii, packet_id ):
+    
+        stmt = '''
+            INSERT INTO `LinkStarSTX3_Message_History`( `packet_id`, `message`, `time_sent`) VALUES ('{}','{}',NOW())
+        '''.format(packet_id, message_packet_ascii )
+        print stmt
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                
+        # Remove older archive messages based on max_packets_stored in LinkStar_Simplex_Information
+        # Get max_packets_stored
+        stmt = '''
+            SELECT `LinkStar_Simplex_Information`.`max_packets_stored` FROM `stepSATdb_Flight`.`LinkStar_Simplex_Information`
+        '''
+
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                max_packets_stored = row['max_packets_stored']
+                print max_packets_stored
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        
+        # Get highest event_key
+        stmt = '''
+            SELECT * FROM `LinkStarSTX3_Message_History` ORDER BY `LinkStarSTX3_Message_History`.`event_key` DESC LIMIT 1
+        '''
+
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                max_event_key = row['event_key']
+                print max_event_key
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        
+        # Calculate which event key to removed from. If less then zero skip removal.
+        event_key_delete_point = max_event_key - max_packets_stored
+        print event_key_delete_point
+        
+        if event_key_delete_point > 0:
+            stmt = '''
+                DELETE FROM `LinkStarSTX3_Message_History` WHERE `event_key` <  '{}'
+            '''.format(event_key_delete_point)
+            print stmt
+            with self.lock:
+                try:
+                    self.cursor.execute(stmt)
+                except mysql.connector.Error as err:
+                    print("MySQL Error: {}".format(err))
+                    syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        
+        return True
+
+    def get_packet_type(self, packet_id):
+       # Get the GPS info if it exists 
+        stmt = '''
+            SELECT * FROM `Packets_Types` WHERE `packet_id` = '{}'
+        '''.format(packet_id)
+        print stmt
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                return row['packet_type']
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        if row['packet_type']:
+            return row['packet_type']
+        else:
+            return None
+
+    def get_packet_parameter_id(self, packet_id):
+       # Get the GPS info if it exists 
+        stmt = '''
+            SELECT * FROM `Packets_Types` WHERE `packet_id` = '{}'
+        '''.format(packet_id)
+        print stmt
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        print row['parameter_id']
+        if row['parameter_id']:
+            return row['parameter_id']
+        else:
+            return None
+
+
+    def gps_installed_state(self):
+       # Get the GPS info if it exists 
+        stmt = '''
+            SELECT GPS_Information.* FROM `GPS_Information`
+        '''
+        print stmt
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        if row:
+            return row
+        else:
+            return None
+
+
+    def get_location(self):
+        stmt = '''
+                SELECT `Location_Data`.`latitude`, `Location_Data`.`longitude`, `Location_Data`.`altitude`
+                    FROM `stepSATdb_Flight`.`Location_Data`
+                    ORDER BY `Location_Data`.`event_key` DESC LIMIT 1
+             '''
+        print stmt
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        if row:
+            return row
+        else:
+            return None
+    
+
+    def gps_write_location_table(self,latitude,longitude, speed, dateTimeUTC, altitude, dataSource, heading):
+        # Get the current recording_session_id
+        stmt = '''
+                SELECT *
+                    FROM `stepSATdb_Flight`.`Recording_Sessions`
+                    ORDER BY `Recording_Sessions`.`recording_session_id` DESC LIMIT 1
+             '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row_recording_session = self.cursor.fetchone()
+                rec_id = row_recording_session['recording_session_id']
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+        stmt = '''
+                   INSERT INTO `stepSATdb_Flight`.`Location_Data` (`recording_session_id`,`latitude`, `longitude`, `hspeed`,
+                        `time_recorded`, `timestamp_source`, `altitude`,`data_source`, `heading`) VALUES (
+                         '{}', '{}', '{}', '{}',NOW(), '{}', '{}','{}', '{}' )
+                '''.format(rec_id,latitude, longitude, speed, dateTimeUTC, altitude, dataSource, heading)
+        print stmt
+        with self.lock:
+            try:
+                # Write the GPS location information into the Location_Data table
+                self.cursor.execute(stmt)
+                self.db.commit()
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                
+        # Only 60,000 location points shall be saved.  Remove older records beyond the 60,000 record count.
+
+        # Get highest event_key
+        stmt = '''
+            SELECT * FROM `Location_Data` ORDER BY `Location_Data`.`event_key` DESC LIMIT 1
+        '''
+
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                max_event_key = row['event_key']
+                print max_event_key
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        
+        # Calculate which event key to removed from. If less then zero skip removal.
+        event_key_delete_point = max_event_key - 60000
+        print "*** ---> GPS clean-up delete point value..."
+        print event_key_delete_point
+        
+        if event_key_delete_point > 0:
+            stmt = '''
+                DELETE FROM `Location_Data` WHERE `event_key` <  '{}'
+            '''.format(event_key_delete_point)
+            print stmt
+            with self.lock:
+                try:
+                    self.cursor.execute(stmt)
+                except mysql.connector.Error as err:
+                    print("MySQL Error: {}".format(err))
+                    syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+
+    def gps_write_GPS_fix_data(self, fixVal, gpsFixTypeVal, satellites_being_tracked, satellites_in_view, pdop, vdop, hdop):
+        # Get GPS part_key - the configuration supports only one active GPS unit
+        # Get the GPS info if it exists 
+        stmt = '''
+            SELECT GPS_Information.part_key FROM `GPS_Information`
+        '''
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                gps_part_key = row['part_key']
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                
+        # Update the GPS information with the latest fix data
+        stmt = '''
+            UPDATE `GPS_Information` SET `fix_quality`= '{}', `3d_fix`= '{}', `satellites_in_view`= '{}', `satellites_being_tracked`= '{}', `pdop`= '{}', `vdop`= '{}', `hdop`= '{}' WHERE `GPS_Information`.`part_key` = '{}'
+        '''.format(fixVal, gpsFixTypeVal, satellites_in_view, satellites_being_tracked, pdop, vdop, hdop, gps_part_key)
+        print stmt
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        return True
+        
+    def gps_satellite_data(self, satellites_in_view, satellites_being_tracked, SatellitesInTracked, SatellitesInView):
+        # store in stepSATdb_Flight the satellites in view and which satellites are being tracked
+        
+        # build array
+        
+        SatellitesTable=[]
+        for x in range(0, int(len(SatellitesInView)/4)):
+            SatellitesTable.append([SatellitesInView[(4*x)],SatellitesInView[(4*x)+1],SatellitesInView[(4*x)+2],SatellitesInView[(4*x)+3],0])            
+        print SatellitesTable
+        # check if satellite is used in tracking
+        print [row[0] for row in SatellitesTable]
+        searchTable = [row[0] for row in SatellitesTable]
+        if int(len(SatellitesInView)/4) > len(SatellitesInTracked):
+            range_val = len(SatellitesInTracked)
+        else:
+            range_val = int(len(SatellitesInView)/4)
+        print ' --> range_val: '
+        print range_val
+        for x in range(0, range_val):
+            print SatellitesInTracked[x]
+            if SatellitesInTracked[x] in [row[0] for row in SatellitesTable]:
+                try:
+                    idx = searchTable.index(SatellitesInTracked[x])
+                    SatellitesTable[idx][4] = 1
+                    print 'satellite match'
+                except ValueError:
+                    # no match
+                    print 'error'
+        # write to the database
+        print SatellitesTable
+        
+        # First delete all old satellite tracking records in the table
+        stmt = '''
+            DELETE FROM `GPS_Satellite_View`
+        '''
+        print stmt
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        
+        # insert new satellite tracking records into the table
+        print "----> satellites in view for DB"
+        print int(len(SatellitesInView)/4)
+        for x in range(0, int(len(SatellitesInView)/4)):
+            stmt = '''
+                INSERT IGNORE INTO `GPS_Satellite_View`(`PRN_number`, `elevation`, `azimuth`, `snr`, `being_tracked`) VALUES ('{}','{}','{}','{}','{}')
+            '''.format(SatellitesTable[x][0], SatellitesTable[x][1], SatellitesTable[x][2], SatellitesTable[x][3], SatellitesTable[x][4])
+            print stmt
+            with self.lock:
+                try:
+                    self.cursor.execute(stmt)
+                except mysql.connector.Error as err:
+                    print("MySQL Error: {}".format(err))
+                    syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+    def ground_sync_allowed(self):
+         # Verify the user has enabled the radio
+        stmt = '''
+            SELECT `Recording_Session_State`.`sync_to_ground`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                ) LIMIT 1
+        '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                results = self.cursor.fetchone()
+                return results['sync_to_ground']
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                return 0
+                
+    def gps_bypass_allowed(self):
+         # Verify the user has enabled the radio
+        stmt = '''
+            SELECT `Recording_Session_State`.`bypass_gps`
+                FROM `stepSATdb_Flight`.`Recording_Session_State`
+                WHERE `Recording_Session_State`.`Recording_Sessions_recording_session_id`=(
+                    SELECT MAX(`Recording_Sessions`.`recording_session_id`)
+                        FROM `stepSATdb_Flight`.`Recording_Sessions`
+                ) LIMIT 1
+        '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                results = self.cursor.fetchone()
+                return results['bypass_gps']
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                return 0
+
+    def check_radio_space_use(self):
+        stmt = '''
+            SELECT `LinkStar_Simplex_Information`.`space_use` FROM `LinkStar_Simplex_Information`
+        '''
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                spaceUse = row['space_use']
+                print "SPACE USE FLAG"
+                print spaceUse
+                return spaceUse
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+
+    def update_gsn(self, radio_gsn):
+        stmt = '''
+            UPDATE `LinkStar_Simplex_Information` SET `phone_number`= '{}'
+        '''.format(radio_gsn)
+        print stmt
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        return True
+        
+    def check_timing_reset(self):
+        stmt = '''
+            SELECT `LinkStar_Simplex_Information`.`timing_reset` FROM `LinkStar_Simplex_Information`
+        '''
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                timingReset = row['timing_reset']
+                print "timing Reset FLAG"
+                print timingReset
+                return timingReset
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+    
+    def check_alarm_status(self):
+        stmt = '''
+            SELECT `LinkStar_Simplex_Information`.`alarm_enabled` FROM `LinkStar_Simplex_Information`
+        '''
+        row = ''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                row = self.cursor.fetchone()
+                alarmEnabled = row['alarm_enabled']
+                print "alarm_enabled FLAG"
+                print alarmEnabled
+                return alarmEnabled
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                
+    def zero_timing_reset_flag(self):
+        stmt = '''
+            UPDATE `LinkStar_Simplex_Information` SET `timing_reset`= 0
+        '''
+        print stmt
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+        return True
+
+    def build_time_tuple(self):
+        # Get last GPS time stamp 
+        stmt = '''
+            SELECT `Location_Data`.`timestamp_source`  FROM `Location_Data` ORDER BY `event_key` DESC LIMIT 1
+        '''
+        with self.lock:
+            try:
+                self.cursor.execute(stmt)
+                results = self.cursor.fetchone()
+                    
+            except mysql.connector.Error as err:
+                print("MySQL Error: {}".format(err))
+                syslog.syslog(syslog.LOG_DEBUG, "MySQL Error: {}".format(err))
+                done_finding_time = True
+                return 0
+        if results['timestamp_source'] == 'error':
+            return results['timestamp_source']
+        elif results['timestamp_source'][:4] == '20--':
+            return 'error'
+        elif results['timestamp_source'][:4] == '2016':
+            return 'error'
+        elif results['timestamp_source'][:4] == '2016':
+            return 'error'
+        else:
+            print results['timestamp_source'][13:14]
+            if results['timestamp_source'][13:14] != ':':     # error in GPS Time...colon in wrong place...do not use
+                print 'error in time stamp'
+                print results['timestamp_source']
+                return 'error'
+            else:
+                print 'time stamp PASSED muster'
+                print results['timestamp_source']
+                gps_year = int(results['timestamp_source'][:4])
+                gps_month = int(results['timestamp_source'][5:7])
+                gps_day = int(results['timestamp_source'][8:10])
+                gps_hour = int(results['timestamp_source'][11:13])
+                gps_minute = int(results['timestamp_source'][14:16])
+                gps_second = int(results['timestamp_source'][17:19])
+                gps_ms = 0
+                return (gps_year, gps_month, gps_day, gps_hour, gps_minute, gps_second, gps_ms)
